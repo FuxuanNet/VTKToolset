@@ -1,0 +1,48 @@
+# Visual Studio and CMake temporary files
+.vs/
+.vscode/
+build/
+out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*_autogen/
+
+# Compiler and linker intermediate files
+*.obj
+*.o
+*.pch
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.idb
+*.tlog
+*.lastbuildstate
+
+# Generated libraries are ignored, except the two deployable Release files.
+lib/
+bin/*
+!bin/Release/
+bin/Release/*
+!bin/Release/VTUFileIO.pyd
+!bin/Release/SAM.Pre.VTUFileIOToolset.dll
+
+# Logs, caches and local configuration
+*.log
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+Thumbs.db
+CMakeUserPresets.json
+
+# Large local CAE data and temporary exports
+*.h5
+*.hdf5
+*.odb
+*.op2
+*.f06
+*.pch
+*.tmp

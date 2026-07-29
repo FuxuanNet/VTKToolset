@@ -1,0 +1,313 @@
+[
+  {
+    "file": "01_beam_rod_line_static.vtk",
+    "description": "Line elements: beam and truss style static fields",
+    "points": 4,
+    "cells": 3,
+    "cell_types": [
+      3
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "02_shell_tri_quad_planar.vtk",
+    "description": "Shell elements: triangles and quads with planar stress",
+    "points": 6,
+    "cells": 3,
+    "cell_types": [
+      5,
+      9
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "03_solid_tetra_wedge_hex.vtk",
+    "description": "Solid elements: tetrahedron, wedge and hexahedron",
+    "points": 18,
+    "cells": 3,
+    "cell_types": [
+      10,
+      12,
+      13
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "04_mixed_beam_shell_solid.vtk",
+    "description": "Mixed model: line, shell and solid elements in one file",
+    "points": 10,
+    "cells": 4,
+    "cell_types": [
+      3,
+      5,
+      9,
+      12
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "05_compression_pressure.vtk",
+    "description": "Compression case: negative normal stress gives positive pressure",
+    "points": 12,
+    "cells": 2,
+    "cell_types": [
+      10,
+      12
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "06_shear_dominant.vtk",
+    "description": "Shear-dominant fields for Mises verification",
+    "points": 7,
+    "cells": 3,
+    "cell_types": [
+      3,
+      5,
+      10
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "07_shell_zero_out_of_plane.vtk",
+    "description": "Shell plane stress: S33/S23/S13 are zero",
+    "points": 6,
+    "cells": 3,
+    "cell_types": [
+      5,
+      9
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "08_quadratic_elements.vtk",
+    "description": "Quadratic VTK cell types for high-order coverage",
+    "points": 24,
+    "cells": 4,
+    "cell_types": [
+      21,
+      22,
+      23,
+      24
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "09_dense_many_elements.vtk",
+    "description": "Dense mixed mesh with many cells",
+    "points": 20,
+    "cells": 12,
+    "cell_types": [
+      3,
+      5,
+      9,
+      10,
+      13
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  },
+  {
+    "file": "10_zero_and_extreme_fields.vtk",
+    "description": "Zero and high contrast values for robustness",
+    "points": 8,
+    "cells": 5,
+    "cell_types": [
+      3,
+      5,
+      9,
+      10,
+      12
+    ],
+    "fields": [
+      "U",
+      "UR",
+      "S",
+      "E",
+      "S11",
+      "S22",
+      "S33",
+      "S12",
+      "S23",
+      "S13",
+      "S_Mises",
+      "S_pressure",
+      "E11",
+      "E22",
+      "E33",
+      "E12",
+      "E23",
+      "E13"
+    ]
+  }
+]
