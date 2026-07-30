@@ -1,5 +1,17 @@
 <div align="center">
 
+# SAM VTKToolset
+
+SAM 的 VTK 导入与导出扩展，支持梁、壳、体网格及常用后处理结果写出。
+
+![C++](https://img.shields.io/badge/C%2B%2B-14-00599C?logo=cplusplus)
+![CMake](https://img.shields.io/badge/CMake-3.28+-064F8C?logo=cmake)
+![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
+![SAM](https://img.shields.io/badge/SAM-SDK-1F6FEB)
+![VTK](https://img.shields.io/badge/VTK-Legacy_ASCII-EF553B)
+
+</div>
+
 ---
 
 ## 快速开始：直接部署，无需源码编译
