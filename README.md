@@ -2,6 +2,44 @@
 
 ---
 
+## 快速开始：直接部署，无需源码编译
+
+> **可直接部署文件：** `deploy/Release/VTUFileIO.pyd` 和 `deploy/Release/FilePlugin/SAM.Pre.VTUFileIOToolset.dll`
+> **12 个已验证 SAM H5 测试案例：** `test_cases/SAM_H5/`
+> **本项目配套的 VTK.js 可视化网站：** [https://fuxuannet.github.io/vtk_geometry_viewer/](https://fuxuannet.github.io/vtk_geometry_viewer/)
+
+本项目可以直接部署到兼容版本的 SAM 中使用，不需要编译 C++ 源码。运行包不包含单独的 `.exe`，因为它由 SAM 启动时加载的两个模块组成。
+
+### 安装运行包
+
+1. 完全退出 SAM。
+2. 打开项目中的 `deploy` 目录。
+3. 将其中的 `Release` 文件夹复制到 SAM 安装根目录，例如 `E:/SAM`。
+4. 允许 Windows 合并 `Release` 和 `Release/FilePlugin` 文件夹；更新版本时允许替换同名旧文件。
+5. 启动 SAM。
+6. 在菜单中确认出现 `File -> Import -> VTK...` 与 `File -> Export -> VTK...`。
+
+复制后，SAM 目录应包含：
+
+```text
+E:/SAM/
+└── Release/
+    ├── VTUFileIO.pyd
+    └── FilePlugin/
+        └── SAM.Pre.VTUFileIOToolset.dll
+```
+
+### 测试运行包
+
+1. 按上述步骤部署运行包。
+2. 启动 SAM，打开或导入 `test_cases/SAM_H5` 中任意一个 `.sam.h5` 文件。
+3. 进入模型或后处理结果环境。
+4. 点击 `File -> Export -> VTK...`，选择一个空的输出文件夹。
+5. 将导出的 `.vtk` 文件拖入网页查看器：[https://fuxuannet.github.io/vtk_geometry_viewer/](https://fuxuannet.github.io/vtk_geometry_viewer/)。
+6. 在网页中检查网格，并从结果场列表选择 `U`、`UR`、`S`、`E`、`S11`、`S_Mises` 或 `S_pressure`。
+
+这 12 个 H5 均已完成 SAM 到 VTK 的实际对比验证。验证结果包含 44 个 VTK 文件，44 个通过，0 个失败。详细覆盖范围见 `test_cases/README.md`。
+
 ## 项目简介
 
 VTKToolset 基于 SAM 已有 VTK 接口扩展开发，在 SAM 的 `File -> Import` 和 `File -> Export` 菜单中提供 VTK 文件入口。项目由两个动态模块组成：
@@ -120,7 +158,7 @@ cmake --build build --config Release
 
 ## 已编译文件
 
-仓库的 `bin/Release` 保留了当前已验证的两个运行文件：
+仓库在 `bin/Release` 和 `deploy/Release` 中保留了当前已验证的两个运行文件：
 
 ```text
 bin/Release/VTUFileIO.pyd
@@ -139,35 +177,6 @@ python tests/verify_generated_vtk_cases.py
 ```
 
 SAM H5 到 VTK 的实际导出测试还需要本机安装 SAM，并在 SAM 图形界面中执行导出。
-
-## Git 与 SVN 提交规则
-
-仓库提交源码、CMake 文件、测试脚本、轻量测试数据，以及 `bin/Release` 中的两个可部署文件。以下内容由 `.gitignore` 排除：
-
-- `build`、`obj`、CMake 缓存和 Visual Studio 临时目录。
-- 编译产生的 `.lib`、`.exp`、`.pdb`、`.ilk` 等中间文件。
-- 本地 H5、ODB、OP2 和临时导出数据。
-- 超过 100 MB 的计算数据或测试结果。
-
-SVN 不读取 `.gitignore`。提交 SVN 时应按照同样规则手动排除，并在提交前检查大文件：
-
-```powershell
-Get-ChildItem -Recurse -File |
-  Where-Object Length -ge 100MB |
-  Select-Object FullName, Length
-```
-
-推荐提交内容：
-
-```text
-CMakeLists.txt
-src/
-tests/
-README.md
-.gitignore
-bin/Release/VTUFileIO.pyd
-bin/Release/SAM.Pre.VTUFileIOToolset.dll
-```
 
 ## 常见问题
 

@@ -99,8 +99,13 @@ target_link_libraries(VTUFileIO
 add_custom_command(TARGET VTUFileIO POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
     ${LIBS_SAM_ROOT}/Release
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+    ${PROJECT_SOURCE_DIR}/deploy/Release
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:VTUFileIO>
     ${LIBS_SAM_ROOT}/Release/VTUFileIO.pyd
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:VTUFileIO>
+    ${PROJECT_SOURCE_DIR}/deploy/Release/VTUFileIO.pyd
     VERBATIM
 )

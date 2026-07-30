@@ -40,6 +40,9 @@ CMakeUserPresets.json
 
 # Large local CAE data and temporary exports
 *.h5
+!test_cases/
+!test_cases/SAM_H5/
+!test_cases/SAM_H5/*.sam.h5
 *.hdf5
 *.odb
 *.op2

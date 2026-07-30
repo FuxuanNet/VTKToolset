@@ -111,8 +111,13 @@ target_link_libraries(VTUFileIOToolset
 add_custom_command(TARGET VTUFileIOToolset POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
     ${LIBS_SAM_ROOT}/Release/FilePlugin
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+    ${PROJECT_SOURCE_DIR}/deploy/Release/FilePlugin
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:VTUFileIOToolset>
     ${LIBS_SAM_ROOT}/Release/FilePlugin/SAM.Pre.VTUFileIOToolset.dll
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:VTUFileIOToolset>
+    ${PROJECT_SOURCE_DIR}/deploy/Release/FilePlugin/SAM.Pre.VTUFileIOToolset.dll
     VERBATIM
 )
