@@ -43,6 +43,8 @@ CMakeUserPresets.json
 !test_cases/
 !test_cases/SAM_H5/
 !test_cases/SAM_H5/*.sam.h5
+!test_cases/SAM_H5/1Part-Bushing__1part-bushing.h5
+!test_cases/SAM_H5/Job-S4R-TractionX__job-s4r-tractionx.h5
 *.hdf5
 *.odb
 *.op2

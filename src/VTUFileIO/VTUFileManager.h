@@ -4,6 +4,7 @@
 #include <ptoKPartRepository.h>
 #include <basShortcut.h>
 #include <QtPlugin>
+#include <QString>
 
 class VTUContainerWriter;
 class VTUContainerReader;
@@ -19,10 +20,12 @@ enum VTKType {
 };
 
 struct TargetList{
-	wchar_t targetPath[128];
-	wchar_t odbPath[128];
-	wchar_t targetModel[128];
-	wchar_t targetPart[128];
+	// 导出路径可能包含较深的项目目录。用 QString 保存，避免原来固定 128 个
+	// wchar_t 的数组截断路径，导致后端找不到实际的 .sam.h5 文件。
+	QString targetPath;
+	QString odbPath;
+	QString targetModel;
+	QString targetPart;
 	int targetPartID;
 	VTKType type;
 	int displayMode;//int type of omuObjectToDisplayTypeEnm

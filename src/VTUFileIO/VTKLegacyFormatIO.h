@@ -15,47 +15,47 @@ public:
 
 	int Write();
 
-	// Ğ´Èë½Úµã²¿·ÖÍ·
+	// å†™å…¥èŠ‚ç‚¹éƒ¨åˆ†å¤´
 	FormatWriter::State WritePointsHeader();
 
-	// Ğ´ÈëÒ»Åú½Úµã×ø±ê
+	// å†™å…¥ä¸€æ‰¹èŠ‚ç‚¹åæ ‡
 	FormatWriter::State WritePoints();
 
-	// Ğ´Èëµ¥Ôª²¿·ÖÍ·
+	// å†™å…¥å•å…ƒéƒ¨åˆ†å¤´
 	FormatWriter::State WriteCellsHeader();
 
-	// Ğ´ÈëÒ»Åúµ¥ÔªÊı¾İ
+	// å†™å…¥ä¸€æ‰¹å•å…ƒæ•°æ®
 	FormatWriter::State WriteCells();
 
-	// Ğ´Èëµ¥ÔªÀàĞÍÍ·
+	// å†™å…¥å•å…ƒç±»å‹å¤´
 	FormatWriter::State WriteCellTypesHeader();
 
-	// Ğ´ÈëÒ»Åúµ¥ÔªÀàĞÍ
+	// å†™å…¥ä¸€æ‰¹å•å…ƒç±»å‹
 	FormatWriter::State WriteCellTypes();
 
-	// Ğ´Èë²ÄÁÏÍ·
+	// å†™å…¥ææ–™å¤´
 	FormatWriter::State WriteMaterialsHeader();
 
-	// Ğ´ÈëÒ»Åú²ÄÁÏID
+	// å†™å…¥ä¸€æ‰¹ææ–™ID
 	FormatWriter::State WriteMaterials();
 
-	// ¿ªÊ¼FIELD¿é (ĞÂÔöº¯Êı)
+	// å¼€å§‹FIELDå— (æ–°å¢å‡½æ•°)
 	FormatWriter::State BeginField();
 
-	// Ğ´Èë×Ö¶ÎÍ· (ĞÂÔöº¯Êı)
+	// å†™å…¥å­—æ®µå¤´ (æ–°å¢å‡½æ•°)
 	FormatWriter::State WriteFieldHeader();
 
-	// Ğ´Èë×Ö¶ÎÊı¾İ (·ÖÅúĞ´Èë)
+	// å†™å…¥å­—æ®µæ•°æ® (åˆ†æ‰¹å†™å…¥)
 	FormatWriter::State WriteFieldData();
 
 	// new
-	// Ğ´Èë³¡µãÊı¾İ
+	// å†™å…¥åœºç‚¹æ•°æ®
 	FormatWriter::State WritePointData();
 
-	// Ğ´Èëµ¥Ôª³¡Êı¾İ
+	// å†™å…¥å•å…ƒåœºæ•°æ®
 	FormatWriter::State WriteCellData();
 
-	// Ğ´ÈëÍêÕû×Ö¶Î (Ò»´ÎĞÔĞ´Èë)
+	// å†™å…¥å®Œæ•´å­—æ®µ (ä¸€æ¬¡æ€§å†™å…¥)
 	FormatWriter::State WriteField(const QString& name, int numComponents, int numTuples,
 		const QString& dataType, float* values);
 
@@ -69,10 +69,10 @@ public:
 	int Read30();
 	int Read51();
 
-	// ¶ÁÈë½Úµã×ø±ê
+	// è¯»å…¥èŠ‚ç‚¹åæ ‡
 	int ReadPoints(int numPoints);
 
-	// ¶ÁÈëÒ»Åúµ¥ÔªÊı¾İ
+	// è¯»å…¥ä¸€æ‰¹å•å…ƒæ•°æ®
 	int ReadCells30(int numCells);
 	int ReadCells51(int numOffsetls);
 

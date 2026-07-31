@@ -17,7 +17,7 @@
 
 #include <cmdGCommandDeliveryRole.h>
 
-// ���������Ϊ��SAM�Ľ�������һ���Ի���
+// 这个类曾用于生成一个简单的 SAM 对话框，目前主入口已经改为 File 菜单。
 
 VTUFileIODB::VTUFileIODB(VTUFileIOForm* form)
 	:SAMDataDialog(form, tr("VTUFileIO"), OK | CANCEL)
@@ -53,7 +53,7 @@ void VTUFileIODB::onCmdOk(int id)
 		loaded = true;
 	}
 
-	// ִ��ʵ������
+	// 执行调试命令：调用 printAll 接口，主要用于早期验证后端模块是否能被调用。
 	omuArguments args;
 	omuMethodCall mc("mdb.models['Model-1'].parts['Part-1']", "printAll", args);
 	QString cmd;

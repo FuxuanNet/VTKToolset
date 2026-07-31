@@ -157,12 +157,12 @@ int VTUContainerReader::ConstructElemClasses(bmeElementClass*** classes, int* nu
 }
 
 void VTUContainerReader::ReleaseMemory() {
-	//���ͷ����ɴ洢��new������ڴ�
+	// 新建一个 Part，用来承接从 VTK 导入的网格。
 	for (int i = 0; i < VTUFree.size(); ++i) {
 		if (VTUFree[i] != NULL)
 			delete VTUFree[i];
 	}
-	//�ͷŶ��ڴ�
+	// 创建网格数据。
 	for (int i = 0; i < VTUHeap.size(); ++i) {
 		if (VTUHeap[i] != NULL)
 			free(VTUHeap[i]);
@@ -178,12 +178,12 @@ VTUDataContainer* VTUContainerReader::GetContainerPointer() {
 // TODO:
 //void VTUContainerReader::InsertPointDataToMesh(bmeMesh* mesh) {
 //	if (!mesh) return;
-//	bmeNodeData& nodeData = mesh->GetNodeData(); // ��ȡ�ڵ����ݶ���
+//	bmeNodeData& nodeData = mesh->GetNodeData(); // 获取节点数据容器
 //	int numNodes = mesh->NodeData().NumNodes();
 //
-//	// ������ bmeNodeData ����ʱ��չ�����ֶΣ�
-//	QMap<QString, QVector<float>>& scalars = nodeData.userScalars;    // �Զ���洢
-//	QMap<QString, QVector<QVector3D>>& vectors = nodeData.userVectors; // �Զ���洢
+//	// 如果 bmeNodeData 支持用户自定义场量，可以在这里继续写入标量和向量。
+//	QMap<QString, QVector<float>>& scalars = nodeData.userScalars;    // 用户标量场
+//	QMap<QString, QVector<QVector3D>>& vectors = nodeData.userVectors; // 用户向量场
 //
 //	for (auto it = VTKData->pointData.constBegin(); it != VTKData->pointData.constEnd(); ++it) {
 //		QString fieldName = it.key();

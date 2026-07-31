@@ -12,11 +12,12 @@
 #include <asoKUtils.h>
 #include <asoFPartInstance.h>
 
-//�����ͷ�ļ���Ϊ��print����������ӵ�
+// 下面的头文件用于读取 ODB/后处理结果。
 #include<odbOdbRepository.h>
+#include <odbOdb.h>
 #include<odbmesh.h>
 #include<odaOdbFragment.h>
-#include <odbPartRepository.h>  // ����odbPartRepository����������
+#include <odbPartRepository.h>  // 提供 ODB Part 仓库访问接口
 #include <QDebug>
 #include <QStringList>
 #include <ddbMesh.h>
@@ -102,27 +103,26 @@ const cowListString& VTUFileManager::GetAssemblyParts(const QString& model) {
 Read in mdb for extract nodes and elements and path to output VTK files
 */
 void VTUFileManager::Init(const QString& path, const int& display, const QString& modelName, const QString& partName) {
-	
-	wcsncpy(this->target.targetPath, reinterpret_cast<const wchar_t*>(path.utf16()),path.size() + 1);
+	this->target.targetPath = path;
 	this->target.displayMode = display;
-	wcsncpy(this->target.targetModel, reinterpret_cast<const wchar_t*>(modelName.utf16()), modelName.size() + 1);
-	wcsncpy(this->target.targetPart, reinterpret_cast<const wchar_t*>(partName.utf16()), partName.size() + 1);
+	this->target.targetModel = modelName;
+	this->target.targetPart = partName;
 };
 
 void VTUFileManager::Init(const QString& path, const QString& modelName) {
 
-	wcsncpy(this->target.targetPath, reinterpret_cast<const wchar_t*>(path.utf16()), path.size() + 1);
-	wcsncpy(this->target.targetModel, reinterpret_cast<const wchar_t*>(modelName.utf16()), modelName.size() + 1);
+	this->target.targetPath = path;
+	this->target.targetModel = modelName;
 	QString baseName = QFileInfo(path).baseName();
-	wcsncpy(this->target.targetPart, reinterpret_cast<const wchar_t*>(baseName.utf16()), baseName.size() + 1);
+	this->target.targetPart = baseName;
 };
 
 void VTUFileManager::Init(const QString& path, const QString& odbPath, const int& display, const QString& modelName) {
 
-	wcsncpy(this->target.targetPath, reinterpret_cast<const wchar_t*>(path.utf16()), path.size() + 1);
-	wcsncpy(this->target.odbPath, reinterpret_cast<const wchar_t*>(odbPath.utf16()), odbPath.size() + 1);
+	this->target.targetPath = path;
+	this->target.odbPath = odbPath;
 	this->target.displayMode = display;
-	wcsncpy(this->target.targetModel, reinterpret_cast<const wchar_t*>(modelName.utf16()), modelName.size() + 1);
+	this->target.targetModel = modelName;
 };
 
 int VTUFileManager::ReadToCache() {
@@ -142,8 +142,8 @@ int VTUFileManager::ReadToCache() {
 int VTUFileManager::ReadToSAM() {
 	QString targetP = target.TargetPart();
 	int status = reader->ConstructNewPart(target.TargetModel(), targetP, target.targetPartID);
-	//memset((void*)target.targetPart, 0, 128 * sizeof(wchar_t));
-	wcsncpy(target.targetPart, reinterpret_cast<const wchar_t*>(targetP.utf16()), targetP.size() + 1);
+	// ConstructNewPart 可能会调整最终 Part 名称，直接保存其返回的 QString。
+	target.targetPart = targetP;
 	//reader->ReleaseMemory();
 	delete reader;
 	delete writer;
@@ -257,15 +257,32 @@ int VTUFileManager::writeAllParts() {
 
 int VTUFileManager::writeODB() {
 
-	QString odbPath = target.TargetOdbPath();
+	const QString odbPath = target.TargetOdbPath().trimmed();
 
+	// 优先按界面传入的真实 H5 路径直接读取。直接读取能保留 H5 中的
+	// ComponentLabels，壳单元的 S11/S22/S12 等分量不会被旧 ODB 接口重排。
 	if (ExportSamH5ToVtkFrames(odbPath, writer) == 0) {
+		qDebug() << "[VTK export] Direct SAM H5 export succeeded:" << odbPath;
 		return 0;
 	}
 
-	odbOdb& odb = odbOdbRepository::Instance().get(odbPath); 
+	// OdbPathName 在某些 SAM 版本中返回的是仓库表达式或别名，不能直接
+	// 当作 Windows 文件路径使用。ODB 对象自身的 path() 才是 SAM 实际打开的文件。
+	odbOdb& odb = odbOdbRepository::Instance().get(odbPath);
+	const QString actualH5Path = odb.path().trimmed();
+	if (!actualH5Path.isEmpty() && actualH5Path != odbPath) {
+		qDebug() << "[VTK export] Retrying direct SAM H5 export with ODB path:" << actualH5Path;
+		if (ExportSamH5ToVtkFrames(actualH5Path, writer) == 0) {
+			qDebug() << "[VTK export] Direct SAM H5 export succeeded after ODB path resolution.";
+			return 0;
+		}
+	}
 
-	int status = writer->VTKExportODB(&odb);  
+	// 只有文件路径无法取得或 H5 结构不受支持时才使用旧 ODB 读取路线。
+	// 它保留为兼容入口，但其壳结果分量表达能力弱于直接 H5 路线。
+	qDebug() << "[VTK export] Falling back to ODB API export. Requested path:" << odbPath
+		<< "; resolved path:" << actualH5Path;
+	int status = writer->VTKExportODB(&odb);
 	return status;
 }
 
@@ -278,19 +295,19 @@ void VTUFileManager::SyncSAM(basNewModelShortcut& modelShortcut) {
 
 
 QString TargetList::TargetModel() {
-	return QString::fromWCharArray(targetModel);
+	return targetModel;
 }
 
 QString TargetList::TargetPart() {
-	return QString::fromWCharArray(targetPart);
+	return targetPart;
 }
 
 QString TargetList::TargetPath() {
-	return QString::fromWCharArray(targetPath);
+	return targetPath;
 }
 
 QString TargetList::TargetOdbPath() {
-	return QString::fromWCharArray(odbPath);
+	return odbPath;
 }
 
 const QString VTUFileManager::GetTargetPartName() {

@@ -35,6 +35,10 @@
 
 namespace {
 
+// 这个文件是“走 SAM SDK / ODB 对象读取”的导出路线。
+// 如果 VTUFileManager 不能直接读取 SAM H5，就会回退到这里读取 SAM 已经打开的 ODB 对象。
+// 它和 SamH5VtkExporter.cpp 的目标相同：最终都把数据塞进 VTUDataContainer。
+
 // VTK 的 TENSORS 需要 6 个分量。SAM/ODB 有些壳结果只有 3 或 4 个分量，
 // 这里统一补成 [11,22,33,12,23,13]，缺的分量用 0，避免导出文件列数错位。
 QVector<float> NormalizeTensor6(const float* data, int numComp)
@@ -90,6 +94,8 @@ int VTUContainerWriter::ReadVTKMesh(const bmeMesh* mesh) {
 	if (!(mesh->NumNodes()))
 		return ERRORTYPE_WRONG_NODE_DATA;
 
+	// 从 SAM 前处理网格里读取节点。
+	// InsertNextPoint 的第一个参数传用户节点编号，容器内部会建立“节点编号 -> VTK 下标”的映射。
 	const bmeNodeData& nodeData = mesh->NodeData();
 	utiCoordCont3D nodeContainer = nodeData.CoordContainer();
 	cowListInt nodeList;
@@ -141,6 +147,9 @@ int VTUContainerWriter::VTKExportODB(odbOdb* odb) {
 }
 
 int VTUContainerWriter::BuildFramesList(odbOdb* odb) {
+	// ODB 后处理结果通常是 Step -> Frame -> FieldOutput 的层级。
+	// 这里按这个层级遍历所有帧，每一帧生成一个 VTUDataContainer，
+	// 最后写文件时就能得到 xxx_0.vtk、xxx_1.vtk 这样的多帧结果。
 	const odiKModel& model = odb->model();
 	const odiKMeshContainer& meshCont = model.ConstMeshContainer();
 
@@ -248,6 +257,8 @@ int VTUContainerWriter::WriteElements(const odiKMesh& mesh, VTUDataContainer* co
 int VTUContainerWriter::WriteField(const odbFieldOutput& field, const odiKMesh& mesh, VTUDataContainer* container) {
 	QString fieldName = field.name();
 	if (fieldName == "S" || fieldName == "E") {
+		// S/E 是本课题重点字段，需要额外拆分张量和分量，
+		// 所以它们交给 WriteCellTensorField 统一处理。
 		return 0;
 	}
 	odbEnum::odbDataTypeEnum type = field.type();
@@ -306,9 +317,11 @@ int VTUContainerWriter::WriteField(const odbFieldOutput& field, const odiKMesh& 
 		}
 
 		if (isPointData) {
+			// 节点字段，例如 U、UR，写入 POINT_DATA。
 			container->InsertPointData(fieldName, index, dataVec);
 		}
 		else if (isCellData) {
+			// 单元字段写入 CELL_DATA。
 			container->InsertCellData(fieldName, index, dataVec);
 		}
 	}
@@ -379,6 +392,8 @@ int VTUContainerWriter::WriteCellTensorField(const QString& fieldName, const odi
 		const int vtkCellIndex = meshElemIndex;
 		container->InsertCellData(fieldName, vtkCellIndex, avg);
 
+		// 除了 TENSORS S/E，也额外写出单独分量。
+		// 这样 VTK.js、ParaView 或其他工具可以直接选 S11、S22、E12 这类标量着色。
 		QStringList names;
 		names << fieldName + "11"
 			<< fieldName + "22"
@@ -391,6 +406,8 @@ int VTUContainerWriter::WriteCellTensorField(const QString& fieldName, const odi
 		}
 
 		if (fieldName == "S") {
+			// Mises 是等效应力；pressure 按常见符号约定取 -(S11+S22+S33)/3。
+			// 这两个字段都作为单分量标量写入 CELL_DATA。
 			container->InsertCellData("S_Mises", vtkCellIndex, QVector<float>{static_cast<float>(CalculateMises(avg))});
 			container->InsertCellData("S_pressure", vtkCellIndex, QVector<float>{-(avg[0] + avg[1] + avg[2]) / 3.0f});
 		}

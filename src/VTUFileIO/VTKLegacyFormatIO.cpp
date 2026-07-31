@@ -195,7 +195,7 @@ FormatWriter::State VTKLegacyFormatWriter::WritePointData() {
 		if (numComp <= 0 || values.size() < numPoints * numComp) continue;
 
 		if (numComp == 1) {
-			// ����
+			// 单分量字段写成 SCALARS，例如 S11、S_pressure。
 			*stream << "SCALARS " << fieldName << " float 1\n";
 			*stream << "LOOKUP_TABLE default\n";
 
@@ -207,9 +207,9 @@ FormatWriter::State VTKLegacyFormatWriter::WritePointData() {
 			if (numPoints % pointsPerLine != 0) *stream << "\n";
 		}
 		else if (numComp == 3) {
-			// ����
+			// 三分量字段写成 VECTORS，例如 U、UR。
 			*stream << "VECTORS " << fieldName << " float\n";
-			const int pointsPerLine = 3; // ÿ��д3������
+			const int pointsPerLine = 3; // 每行写 3 个点，让文本文件更容易阅读。
 			for (int i = 0; i < numPoints; ++i) {
 				*stream << values[3 * i] << " "
 					<< values[3 * i + 1] << " "
@@ -219,9 +219,9 @@ FormatWriter::State VTKLegacyFormatWriter::WritePointData() {
 			if (numPoints % pointsPerLine != 0) *stream << "\n";
 		}
 		else if (numComp == 6) {
-			// ������6������
+			// 六分量字段写成 TENSORS，例如 S、E。
 			*stream << "TENSORS " << fieldName << " float\n";
-			const int pointsPerLine = 2; // ÿ��д2������
+			const int pointsPerLine = 2; // 每行写 2 个张量，避免一行过长。
 			for (int i = 0; i < numPoints; ++i) {
 				float xx = values[6 * i + 0];
 				float yy = values[6 * i + 1];
@@ -230,7 +230,7 @@ FormatWriter::State VTKLegacyFormatWriter::WritePointData() {
 				float yz = values[6 * i + 4];
 				float xz = values[6 * i + 5];
 
-				// ÿ������д�� 3 ��
+				// VTK TENSORS 需要 3x3 矩阵，这里由 6 个工程分量展开。
 				*stream << xx << " " << xy << " " << xz << "  "
 					<< xy << " " << yy << " " << yz << "  "
 					<< xz << " " << yz << " " << zz << "  ";
@@ -251,7 +251,7 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCellData() {
 		return currentState;
 	}
 
-	int numCells = data->elems.size();  // ��Ԫ����
+	int numCells = data->elems.size();  // 单元数量
 	*stream << "\nCELL_DATA " << numCells << "\n";
 
 	if (numCells)
@@ -264,11 +264,11 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCellData() {
 			if (numComp <= 0 || values.size() < numCells * numComp) continue;
 
 			if (numComp == 1) {
-				// ����
+				// 单分量单元字段写成 SCALARS。
 				*stream << "SCALARS " << fieldName << " float 1\n";
 				*stream << "LOOKUP_TABLE default\n";
 
-				const int cellsPerLine = 10; // ÿ��д10����Ԫ
+				const int cellsPerLine = 10; // 每行写 10 个标量单元值。
 				for (int i = 0; i < numCells; ++i) {
 					*stream << values[i] << " ";
 					if ((i + 1) % cellsPerLine == 0) *stream << "\n";
@@ -276,10 +276,10 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCellData() {
 				if (numCells % cellsPerLine != 0) *stream << "\n";
 			}
 			else if (numComp == 3) {
-				// ����
+				// 三分量单元字段写成 VECTORS。
 				*stream << "VECTORS " << fieldName << " float\n";
 
-				const int cellsPerLine = 3; // ÿ��д3������
+				const int cellsPerLine = 3; // 每行写 3 个向量单元值。
 				for (int i = 0; i < numCells; ++i) {
 					*stream << values[3 * i] << " "
 						<< values[3 * i + 1] << " "
@@ -289,10 +289,10 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCellData() {
 				if (numCells % cellsPerLine != 0) *stream << "\n";
 			}
 			else if (numComp == 6) {
-				// ������6������
+				// 六分量单元字段写成 TENSORS。
 				*stream << "TENSORS " << fieldName << " float\n";
 
-				const int cellsPerLine = 2; // ÿ��д2������
+				const int cellsPerLine = 2; // 每行写 2 个单元张量。
 				for (int i = 0; i < numCells; ++i) {
 					float xx = values[6 * i + 0];
 					float yy = values[6 * i + 1];
@@ -301,7 +301,7 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCellData() {
 					float yz = values[6 * i + 4];
 					float xz = values[6 * i + 5];
 
-					// ÿ������д��3�У����ж������
+					// VTK TENSORS 使用 3x3 矩阵顺序写出。
 					*stream << xx << " " << xy << " " << xz << "  "
 						<< xy << " " << yy << " " << yz << "  "
 						<< xz << " " << yz << " " << zz << "  ";
@@ -350,7 +350,7 @@ FormatWriter::State VTKLegacyFormatWriter::WriteField(const QString& name, int n
 //void VTKLegacyFormatWriter::End() {
 //	if (stream) {
 //		if (currentState == FieldDataWriting) {
-//			// ����ֶ�δ��ɣ��ֶ����ӻ���
+//			// 如果正在写 FIELD 块，结束前补一个空行。
 //			*stream << "\n\n";
 //		}
 //	}
@@ -532,10 +532,10 @@ int VTKLegacyFormatReader::ReadPointData(int numPoints) {
 		if (parts.isEmpty()) continue;
 		if (parts[0] == "VECTORS") {
 			if (parts.size() < 2) return ERRORTYPE_FILE_READ_FAILED;
-			QString dataName = parts[1]; // һ���� "Displacement"
+			QString dataName = parts[1]; // 字段名，例如 "Displacement"。
 
 			QVector<float> displacement;
-			displacement.reserve(numPoints * 3); // ÿ���ڵ���������
+			displacement.reserve(numPoints * 3); // 提前预留空间，减少 QVector 扩容次数。
 
 			for (int i = 0; i < numPoints; ++i) {
 				float u, v, w;
@@ -545,7 +545,7 @@ int VTKLegacyFormatReader::ReadPointData(int numPoints) {
 				displacement.push_back(w);
 			}
 
-			// ���� pointData
+			// 写入 pointData，后续导入网格时可保留节点向量字段。
 			data->pointData.insert(dataName, displacement);
 			data->pointDataComponents.insert(dataName, 3);
 			readAnyVector = true;
@@ -555,11 +555,11 @@ int VTKLegacyFormatReader::ReadPointData(int numPoints) {
 			continue;
 		}
 		else if (parts[0] == "SCALARS") {
-			// ���λ�ƴ������������Ҳ���������ﴦ��
-			// �򻯰汾�Ⱥ���
+			// 当前导入主线只恢复几何和向量字段，标量字段先跳过。
+			// 继续读下一段内容。
 		}
 		else {
-			// �������� section������
+			// 遇到暂不支持的 section，继续向后扫描。
 		}
 	}
 

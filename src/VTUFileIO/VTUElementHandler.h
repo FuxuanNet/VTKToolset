@@ -64,7 +64,7 @@ public:
 	static int GetArrayLengthByEnum(VTKType typeEnum);
 
 	/*
-	* ÓÉÓÚ VTK ºÍ SAM ÁùÃæÌå½Úµã±àºÅË³Ğò²»Í¬£¬ĞèÒªÔÚ VTUContainerWriter Ğ´Èë Container Ê±×ö×ª»»¡£
+	* ç”±äº VTK å’Œ SAM å…­é¢ä½“èŠ‚ç‚¹ç¼–å·é¡ºåºä¸åŒï¼Œéœ€è¦åœ¨ VTUContainerWriter å†™å…¥ Container æ—¶åšè½¬æ¢ã€‚
 	*/
 	static bool IsCube(VTKType typeEnum);
 
