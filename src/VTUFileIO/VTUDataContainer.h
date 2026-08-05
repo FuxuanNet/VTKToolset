@@ -12,6 +12,7 @@ struct Point {
 struct Element {
 	VTUElementHandler::VTKType type;
 	int* dataSet;
+	int nodeCount;
 };
 
 class QString;
@@ -42,17 +43,20 @@ public:
 	// Components 记录每个字段有几个分量，例如 U 是 3，S 是 6，S11 是 1。
 	QMap<QString, QVector<float>> pointData;     
 	QMap<QString, QVector<float>> cellData;   
+	QMap<QString, QVector<float>> fieldData;
 	QMap<QString, int> pointDataComponents;
 	QMap<QString, int> cellDataComponents;
-	// QMap<QString, QVector<float>> fieldData;     // 全局场，不依赖单元或节点
+	QMap<QString, int> fieldDataComponents;
+	QMap<QString, int> fieldDataTuples;
 
 	// ---------------------------------------------------               
 
 	void VTUDataContainer::InsertNextPoint(int index, float x, float y, float z);
-	int VTUDataContainer::InsertNextElement(VTUElementHandler::VTKType type, int* dataSet);
+	int VTUDataContainer::InsertNextElement(VTUElementHandler::VTKType type, int* dataSet, int nodeCount = 0);
 
 	void InsertPointData(const QString& fieldName, int pointInd, const QVector<float>& values);
 	void InsertCellData(const QString& fieldName, int cellInd, const QVector<float>& values);
+	void InsertFieldData(const QString& fieldName, int components, int tuples, const QVector<float>& values);
 
 	// ----------------------------------------------------
 	inline int GetNumberOfPoints() const { return points.size(); }

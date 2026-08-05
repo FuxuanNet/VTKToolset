@@ -54,6 +54,7 @@ public:
 
 	// 写入单元场数据
 	FormatWriter::State WriteCellData();
+	FormatWriter::State WriteGlobalFieldData();
 
 	// 写入完整字段 (一次性写入)
 	FormatWriter::State WriteField(const QString& name, int numComponents, int numTuples,

@@ -56,7 +56,7 @@
 
 static omuInterfaceObj::methodTable SAMVTUFileIOFMethods[] =
 {
-	// 这里是老师常问的“接口注册表”。
+	// 这里是“接口注册表”。
 	// 前端命令里写 mdb.models['ModelName'].exportOdbToVtk(...)，
 	// SAM 就是在这张表里找到 "exportOdbToVtk" 对应的 C++ 成员函数。
 	{"printAll", (omuInterfaceObj::methodFunc)&SAMVTUFileIOFragment::printAll},

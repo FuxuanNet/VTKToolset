@@ -1,7 +1,6 @@
 #include <VTUDataContainer.h>
 #include <MessageHandler.h>
 #include <qstring.h>
-#include <shpShape.h>
 
 VTUDataContainer::~VTUDataContainer() {
 	int loop = elems.size();
@@ -23,7 +22,7 @@ void VTUDataContainer::InsertNextPoint(int index, float x, float y, float z) {
 	Index2PositionMap.insert(index, VTKindex);
 }
 
-int VTUDataContainer::InsertNextElement(VTUElementHandler::VTKType type, int* dataSet){
+int VTUDataContainer::InsertNextElement(VTUElementHandler::VTKType type, int* dataSet, int nodeCount){
 
 	if (type == VTUElementHandler::VTK_NONE || dataSet == nullptr)
 		return ERRORTYPE_WRONG_ELEMENT_DATA;
@@ -31,6 +30,7 @@ int VTUDataContainer::InsertNextElement(VTUElementHandler::VTKType type, int* da
 	Element e;
 	e.type = type;
 	e.dataSet = dataSet;
+	e.nodeCount = nodeCount > 0 ? nodeCount : VTUElementHandler::GetArrayLengthByEnum(type);
 
 	if (type == VTUElementHandler::VTK_VOXEL) {
 		int temp;
@@ -43,7 +43,7 @@ int VTUDataContainer::InsertNextElement(VTUElementHandler::VTKType type, int* da
 	}
 
 	elems.push_back(e);
-	elemVertices += VTUElementHandler::GetArrayLengthByEnum(e.type) + 1;
+	elemVertices += e.nodeCount + 1;
 
 	return 0;
 }
@@ -109,4 +109,12 @@ void VTUDataContainer::InsertCellData(const QString& fieldName,
 	for (int i = 0; i < numComponents; ++i) {
 		data[cellIndex * numComponents + i] = values[i];
 	}
+}
+
+void VTUDataContainer::InsertFieldData(const QString& fieldName, int components, int tuples, const QVector<float>& values)
+{
+	if (fieldName.isEmpty() || components <= 0 || tuples <= 0 || values.size() < components * tuples) return;
+	fieldData[fieldName] = values;
+	fieldDataComponents[fieldName] = components;
+	fieldDataTuples[fieldName] = tuples;
 }

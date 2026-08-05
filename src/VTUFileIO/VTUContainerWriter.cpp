@@ -28,6 +28,7 @@
 #include <odbFieldValueData.h>      
 #include <odbFieldValueList.h>      
 #include <odbFieldOutput.h>
+#include <odbSectionPoint.h>
          
               
 #include <QDebug>                            
@@ -52,6 +53,59 @@ QVector<float> NormalizeTensor6(const float* data, int numComp)
 	}
 
 	return value;
+}
+
+QVector<float> FieldValueData(const odbFieldValue& value, bool conjugate = false)
+{
+	int components = 0;
+	QVector<float> result;
+	if (value.precision() == odbEnum::DOUBLE_PRECISION) {
+		const double* data = conjugate ? value.conjugateDataDouble(components) : value.dataDouble(components);
+		if (!data || components <= 0) return result;
+		result.reserve(components);
+		for (int component = 0; component < components; ++component) result.append(static_cast<float>(data[component]));
+	}
+	else {
+		const float* data = conjugate ? value.conjugateData(components) : value.data(components);
+		if (!data || components <= 0) return result;
+		result.reserve(components);
+		for (int component = 0; component < components; ++component) result.append(data[component]);
+	}
+	return result;
+}
+
+QString SafeFieldName(QString name)
+{
+	for (int index = 0; index < name.size(); ++index) {
+		if (name[index].isSpace() || name[index] == '/' || name[index] == '\\' || name[index] == ':') name[index] = '_';
+	}
+	return name;
+}
+
+QString ExactFieldName(const QString& fieldName, const odbFieldValue& value, int duplicate)
+{
+	QString name = fieldName;
+	if (value.integrationPoint() > 0) name += "__IntegrationPoint_" + QString::number(value.integrationPoint());
+	if (value.sectionPoint().number() > 0) name += "__SectionPoint_" + QString::number(value.sectionPoint().number());
+	if (value.face() != odbEnum::FACE_UNKNOWN) name += "__Face_" + QString::number(static_cast<int>(value.face()));
+	if (duplicate > 0) name += "__Record_" + QString::number(duplicate + 1);
+	return SafeFieldName(name);
+}
+
+void InsertComponents(VTUDataContainer* container, bool pointData, const QString& outputName, const QString& fieldName,
+	const odbSequenceString& labels, int targetIndex, const QVector<float>& values)
+{
+	if (pointData) container->InsertPointData(outputName, targetIndex, values);
+	else container->InsertCellData(outputName, targetIndex, values);
+	if (values.size() <= 1) return;
+	for (int component = 0; component < values.size(); ++component) {
+		QString componentName = component < labels.size() ? labels[component] : fieldName + QString::number(component + 1);
+		componentName = SafeFieldName(componentName);
+		const QString suffix = outputName.startsWith(fieldName) ? outputName.mid(fieldName.size()) : "__" + outputName;
+		componentName += suffix;
+		if (pointData) container->InsertPointData(componentName, targetIndex, QVector<float>{values[component]});
+		else container->InsertCellData(componentName, targetIndex, QVector<float>{values[component]});
+	}
 }
 
 double CalculateMises(const QVector<float>& v)
@@ -256,20 +310,28 @@ int VTUContainerWriter::WriteElements(const odiKMesh& mesh, VTUDataContainer* co
 
 int VTUContainerWriter::WriteField(const odbFieldOutput& field, const odiKMesh& mesh, VTUDataContainer* container) {
 	QString fieldName = field.name();
-	if (fieldName == "S" || fieldName == "E") {
-		// S/E 是本课题重点字段，需要额外拆分张量和分量，
-		// 所以它们交给 WriteCellTensorField 统一处理。
-		return 0;
-	}
 	odbEnum::odbDataTypeEnum type = field.type();
 	odbEnum::odbResultPositionEnum pos = field.position();
 
-	bool isPointData = (pos == odbEnum::NODAL || pos == odbEnum::ELEMENT_NODAL);
-	bool isCellData = (pos == odbEnum::CENTROID || pos == odbEnum::ELEMENT_FACE);
+	bool isPointData = (pos == odbEnum::NODAL || pos == odbEnum::ELEMENT_NODAL || pos == odbEnum::SURFACE_NODAL);
+	bool isCellData = !isPointData && pos != odbEnum::WHOLE_REGION && pos != odbEnum::WHOLE_PART_INSTANCE
+		&& pos != odbEnum::WHOLE_MODEL && pos != odbEnum::UNDEFINED_POSITION;
+	const bool isGlobalData = !isPointData && !isCellData;
+	const odbSequenceString componentLabels = field.componentLabels();
+	QMap<QString, int> duplicateNames;
 
 	const int valueCount = field.values().size();
 	for (int i = 0; i < valueCount; ++i) {
 		const odbFieldValue value = field.values(i);
+		if (isGlobalData) {
+			const QVector<float> dataVec = FieldValueData(value, false);
+			if (!dataVec.isEmpty()) container->InsertFieldData(fieldName + "__Record_" + QString::number(i + 1), dataVec.size(), 1, dataVec);
+			if (field.isComplex()) {
+				const QVector<float> imaginary = FieldValueData(value, true);
+				if (!imaginary.isEmpty()) container->InsertFieldData(fieldName + "__Record_" + QString::number(i + 1) + "__Imag", imaginary.size(), 1, imaginary);
+			}
+			continue;
+		}
 
 		int index = -1;
 		if (isPointData) {
@@ -290,39 +352,23 @@ int VTUContainerWriter::WriteField(const odbFieldOutput& field, const odiKMesh& 
 			continue;
 		}
 
-		int numComp = 0;
-		const float* data = value.data(numComp);
-		if (!data || numComp <= 0) {
-			continue;
+		Q_UNUSED(type);
+		const QString baseExactName = ExactFieldName(fieldName, value, 0);
+		const int duplicate = duplicateNames.value(baseExactName + "@" + QString::number(index), 0);
+		duplicateNames[baseExactName + "@" + QString::number(index)] = duplicate + 1;
+		QString exactName = ExactFieldName(fieldName, value, duplicate);
+		if ((fieldName == "S" || fieldName == "E") && exactName == fieldName) {
+			exactName += "__Record_1";
 		}
-
-		QVector<float> dataVec;
-		dataVec.reserve(numComp);
-
-		if (type == odbEnum::SCALAR) {
-			dataVec.append(data[0]);
+		const QVector<float> dataVec = FieldValueData(value, false);
+		if (dataVec.isEmpty()) continue;
+		InsertComponents(container, isPointData, exactName, fieldName, componentLabels, index, dataVec);
+		if (fieldName != "S" && fieldName != "E" && exactName != fieldName && duplicate == 0) {
+			InsertComponents(container, isPointData, fieldName, fieldName, componentLabels, index, dataVec);
 		}
-		else if (type == odbEnum::VECTOR) {
-			for (int j = 0; j < numComp; ++j) {
-				dataVec.append(data[j]);
-			}
-		}
-		else if (type == odbEnum::MATRIX || type == odbEnum::TENSOR_3D_FULL || type == odbEnum::TENSOR_3D_PLANAR) {
-			for (int j = 0; j < numComp; ++j) {
-				dataVec.append(data[j]);
-			}
-		}
-		else {
-			dataVec.append(data[0]);
-		}
-
-		if (isPointData) {
-			// 节点字段，例如 U、UR，写入 POINT_DATA。
-			container->InsertPointData(fieldName, index, dataVec);
-		}
-		else if (isCellData) {
-			// 单元字段写入 CELL_DATA。
-			container->InsertCellData(fieldName, index, dataVec);
+		if (field.isComplex()) {
+			const QVector<float> imaginary = FieldValueData(value, true);
+			if (!imaginary.isEmpty()) InsertComponents(container, isPointData, exactName + "__Imag", fieldName, componentLabels, index, imaginary);
 		}
 	}
 
@@ -356,14 +402,13 @@ int VTUContainerWriter::WriteCellTensorField(const QString& fieldName, const odi
 			continue;
 		}
 
-		int numComp = 0;
-		const float* raw = val.data(numComp);
-		if (!raw || numComp <= 0) {
+		const QVector<float> raw = FieldValueData(val, false);
+		if (raw.isEmpty()) {
 			qDebug() << "[WriteCellTensorField] Skip field" << fieldName << "empty data on element:" << elemLabel;
 			continue;
 		}
 
-		elemIpData[meshElemIndex].push_back(NormalizeTensor6(raw, numComp));
+		elemIpData[meshElemIndex].push_back(NormalizeTensor6(raw.constData(), raw.size()));
 	}
 
 	for (auto it = elemIpData.constBegin(); it != elemIpData.constEnd(); ++it) {

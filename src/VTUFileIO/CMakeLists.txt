@@ -109,3 +109,27 @@ add_custom_command(TARGET VTUFileIO POST_BUILD
     ${PROJECT_SOURCE_DIR}/deploy/Release/VTUFileIO.pyd
     VERBATIM
 )
+
+add_executable(VTUFileIOSmokeTest
+    ${PROJECT_SOURCE_DIR}/tests/direct_h5_export_smoke.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/SamH5VtkExporter.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/VTUDataContainer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/VTUElementHandler.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/VTKLegacyFormatIO.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/FormatIO.cpp
+)
+
+target_include_directories(VTUFileIOSmokeTest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LIBS_QT5_ROOT}/include
+    ${LIBS_QT5_ROOT}/include/QtCore
+    ${LIBS_SAMSDK_ROOT}/include
+	${LIBS_HDF5_ROOT}/include
+)
+
+target_link_libraries(VTUFileIOSmokeTest
+    Qt5Core.lib
+	hdf5.lib
+)
+
+target_compile_definitions(VTUFileIOSmokeTest PRIVATE H5_BUILT_AS_DYNAMIC_LIB)

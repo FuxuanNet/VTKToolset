@@ -25,7 +25,9 @@ VTUElementHandler::VTKType VTUElementHandler::SimplifiedConvertor(const QString&
 
 VTUElementHandler::VTKType VTUElementHandler::SimplyConvertTo1DVTKType(const QString& typeLabel) {
 
-	if (typeLabel == "B31" || typeLabel == "B33" || typeLabel == "T3D2") return VTK_LINE;
+	if (typeLabel == "B31" || typeLabel == "B33" || typeLabel == "T3D2"
+		|| typeLabel == "SPRINGA" || typeLabel == "SPRING1" || typeLabel == "SPRING2"
+		|| typeLabel.startsWith("CONN")) return VTK_LINE;
 	return VTK_NONE;
 }
 

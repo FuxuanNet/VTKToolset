@@ -55,6 +55,8 @@
 #include <qdebug.h>
 
 VTUFileManager::VTUFileManager() {
+	// 构造函数先把四个工作指针置空。此时只创建“管理器”，还没有读取或写出数据。
+	// NULL/空指针表示未创建对象，析构时据此判断是否需要 delete。
 	writer = NULL;
 	fileWriter = NULL;
 	reader = NULL;
@@ -62,11 +64,15 @@ VTUFileManager::VTUFileManager() {
 }
 
 VTUFileManager::~VTUFileManager() {
+	// 析构函数在管理器生命周期结束时释放仍由它持有的对象，避免内存泄漏。
+	// delete 空指针本身是安全的，但这里保留显式判断，便于初学者看清所有权。
 	if (writer != NULL) delete(writer);
 	if (fileWriter != NULL) delete(fileWriter);
 }
 
 TargetList::TargetList() {
+	// TargetList 保存一次导入/导出任务需要的参数。
+	// 默认值表示：Legacy VTK、暂未指定场景、没有额外 ODB 标记。
 	targetPartID = 0;
 	type = VTKLegacy;
 	withOdb = false;
@@ -99,9 +105,9 @@ const cowListString& VTUFileManager::GetAssemblyParts(const QString& model) {
 	return cur_model.ConstGetInstanceTable().Keys();
 }
 
-/*
-Read in mdb for extract nodes and elements and path to output VTK files
-*/
+// 三个同名 Init() 参数不同，这是 C++“函数重载”。
+// 编译器根据调用时的参数个数和类型选择版本，不是定义了三个不同类。
+// 本版本用于导出一个前处理 Part：保存输出路径、显示场景、模型名和 Part 名。
 void VTUFileManager::Init(const QString& path, const int& display, const QString& modelName, const QString& partName) {
 	this->target.targetPath = path;
 	this->target.displayMode = display;
@@ -110,7 +116,7 @@ void VTUFileManager::Init(const QString& path, const int& display, const QString
 };
 
 void VTUFileManager::Init(const QString& path, const QString& modelName) {
-
+	// 本版本用于导入 VTK。输入文件名暂时作为新 Part 的默认名称。
 	this->target.targetPath = path;
 	this->target.targetModel = modelName;
 	QString baseName = QFileInfo(path).baseName();
@@ -118,14 +124,20 @@ void VTUFileManager::Init(const QString& path, const QString& modelName) {
 };
 
 void VTUFileManager::Init(const QString& path, const QString& odbPath, const int& display, const QString& modelName) {
-
+	// 本版本用于后处理导出：path 是用户选择的 VTK 输出基础路径，
+	// odbPath 是 SAM 当前后处理对象对应的 H5/ODB 路径。
 	this->target.targetPath = path;
 	this->target.odbPath = odbPath;
-	this->target.displayMode = display;
+	// 后处理接口历史上仍传入 display，但这里必须固定成 omu_ODB。
+	// Q_UNUSED 告诉编译器“参数是接口要求保留的，这里有意不用”，避免未使用警告。
+	Q_UNUSED(display);
+	this->target.displayMode = omu_ODB;
 	this->target.targetModel = modelName;
 };
 
 int VTUFileManager::ReadToCache() {
+	// 导入第一阶段：把磁盘上的 .vtk 读进统一容器，但暂时不创建 SAM Part。
+	// “Cache”不是网络缓存，这里只是指内存中的 VTUDataContainer。
 	writer = new VTUContainerWriter();
 	fileReader = new VTKLegacyFormatReader(target.TargetPath(), writer->GetContainerPointer());
 
@@ -140,6 +152,7 @@ int VTUFileManager::ReadToCache() {
 }
 
 int VTUFileManager::ReadToSAM() {
+	// 导入第二阶段：把内存容器转换成 SAM 网格对象，并创建新 Part。
 	QString targetP = target.TargetPart();
 	int status = reader->ConstructNewPart(target.TargetModel(), targetP, target.targetPartID);
 	// ConstructNewPart 可能会调整最终 Part 名称，直接保存其返回的 QString。
@@ -153,7 +166,8 @@ int VTUFileManager::ReadToSAM() {
 }
 
 int VTUFileManager::WriteCache() {
-
+	// 导出第一阶段：创建 writer，根据当前 SAM 场景把数据整理到内存容器。
+	// 此函数不写磁盘文件。displayMode 决定数据来自单个 Part、Assembly 还是 ODB/H5。
 	writer = new VTUContainerWriter();
 	switch (target.displayMode) {
 	case omu_PART: {
@@ -170,6 +184,8 @@ int VTUFileManager::WriteCache() {
 }
 
 int VTUFileManager::WriteFile() {
+	// 导出第二阶段：把 WriteCache() 产生的容器真正写成 .vtk 文件。
+	// 后处理通常有多个 Frame，所以先检查帧列表；前处理网格通常只有一个普通容器。
 	QList<VTUDataContainer*> VTKDataFramesList = writer->GetVTKDataFramesList();
 	qDebug() << "[WriteFile] Number of VTK data frames:" << VTKDataFramesList.size();
 
@@ -179,6 +195,7 @@ int VTUFileManager::WriteFile() {
 	int exportedCells = 0;
 
 	if (!VTKDataFramesList.isEmpty()) {
+		// 多帧结果按“用户基础路径_帧序号.vtk”命名，例如 result_0.vtk、result_1.vtk。
 		exportedNodes = VTKDataFramesList[0]->GetNumberOfPoints();
 		exportedCells = VTKDataFramesList[0]->GetNumberOfCells();
 
@@ -199,6 +216,7 @@ int VTUFileManager::WriteFile() {
 		}
 	}
 	else {
+		// 没有帧列表时，说明导出的是单个 Part/Assembly 网格，直接写普通容器。
 		VTUDataContainer* container = writer->GetContainerPointer();
 		if (container == nullptr) {
 			delete writer;
@@ -227,6 +245,7 @@ int VTUFileManager::WriteFile() {
 		}
 	}
 
+	// 文件已经写完，释放中间容器的拥有者；把指针置空，避免析构函数再次 delete。
 	delete writer;
 	writer = nullptr;
 	MessageHandler::ReportExportInfo(exportedNodes, exportedCells);
@@ -234,6 +253,7 @@ int VTUFileManager::WriteFile() {
 	return 0;
 }
 int VTUFileManager::writeSinglePart() {
+	// 从 SAM 模型仓库取得指定 Part，再交给 writer 提取节点和单元。
 	const ptoKPartRepository& parts = ConstGetModelParts(target.TargetModel());
 	if (parts.IsEmpty())
 		return ERRORTYPE_NOTEXIST;
@@ -241,6 +261,7 @@ int VTUFileManager::writeSinglePart() {
 }
 
 int VTUFileManager::writeAllParts() {
+	// Assembly 可能包含多个实例。逐个取得有效 mesh，并追加到同一个 writer 容器。
 	asoKAssembly assm = asoKConstGetAssembly(target.TargetModel());
 	ftrFeatureList* fl = assm.GetFeatureList();
 	cowListInt instIDs = asoFPartInstanceAC::GetActiveIds(*fl);
@@ -256,7 +277,10 @@ int VTUFileManager::writeAllParts() {
 }
 
 int VTUFileManager::writeODB() {
-
+	// 后处理导出的路线调度中心：
+	// 1. 优先直接读取真实 H5，保留源字段及位置记录；
+	// 2. 路径是 SAM 别名时，从 ODB 对象解析真实文件路径后再试一次；
+	// 3. 仍不适用时调用原 ODB SDK，保证旧接口没有被升级路线删除。
 	const QString odbPath = target.TargetOdbPath().trimmed();
 
 	// 优先按界面传入的真实 H5 路径直接读取。直接读取能保留 H5 中的

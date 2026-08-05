@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QMap>
+#include <QSet>
 #include <QStringList>
 
 #include <algorithm>
@@ -19,10 +20,18 @@
 
 namespace {
 
-// 这个文件负责“直接读取 SAM H5，再写出 VTK 数据帧”。
-// 之所以单独做这条路线，是因为老师给的验收重点在 SAM H5 的后处理结果字段：
-// U、UR、S、E、S11、S22、S12、S_Mises、S_pressure 等。
-// 直接读 H5 能让我们准确控制字段名称和分量写出，不完全依赖 SAM ODB SDK 的封装行为。
+// 这个文件负责“直接读取 SAM H5，再整理成 VTK 数据帧”。
+// 它不直接创建界面，也不直接决定输出文件名；它只完成 H5 -> VTUDataContainer。
+// VTUFileManager 随后把每个 VTUDataContainer 交给 Legacy VTK writer 落盘。
+//
+// 为什么增加直接 H5 路线：
+// 原项目通过 ODB SDK 取得结果。SDK 适合兼容 SAM 对象，但源 H5 中的字段层级、
+// ComponentLabels、积分点和重复记录经过 SDK 封装后不容易原样控制。
+// 本文件直接遍历 H5 中实际存在的 Step、Frame 和字段，因此不是只处理 U/UR/S/E；
+// RF、RM 或以后新增的字段只要结构符合规则，也会交给统一的 writeField() 处理。
+//
+// 初学者可把 H5 理解成“文件内部还有目录和数组”：
+// group 类似目录，dataset 类似数组，attribute 类似写在目录或数组旁边的说明信息。
 
 struct ElementClassInfo {
 	// H5 里通常按 ElementClass 分组保存单元。
@@ -38,6 +47,8 @@ struct ElementClassInfo {
 };
 
 struct SamMeshData {
+	QString partName;
+	QString instanceName;
 	// nodeLabels 是 SAM/Nastran 用户看到的节点编号，例如 101、102。
 	std::vector<int> nodeLabels;
 
@@ -50,6 +61,21 @@ struct SamMeshData {
 	std::vector<ElementClassInfo> classes;
 };
 
+int readIntAttribute(hid_t group, const char* name, int defaultValue = 0)
+{
+	// hid_t 是 HDF5 C API 的句柄，可理解为“已打开对象的编号”。
+	// attribute 不存在或打开失败时返回默认值，避免一个可选说明项导致整个导出失败。
+	if (H5Aexists(group, name) <= 0) return defaultValue;
+	hid_t attr = H5Aopen(group, name, H5P_DEFAULT);
+	if (attr < 0) return defaultValue;
+	int value = defaultValue;
+	// H5T_NATIVE_INT 表示把 H5 中的整数转换成当前 C++ 平台的 int。
+	H5Aread(attr, H5T_NATIVE_INT, &value);
+	// HDF5 句柄需要显式关闭，类似 C 语言 fopen() 后必须 fclose()。
+	H5Aclose(attr);
+	return value;
+}
+
 bool exists(hid_t file, const std::string& path)
 {
 	// H5Lexists 用来判断 HDF5 文件里某个路径是否存在。
@@ -59,6 +85,8 @@ bool exists(hid_t file, const std::string& path)
 
 std::vector<hsize_t> datasetDims(hid_t dataset)
 {
+	// dataset 可能是一维 [节点数]，也可能是二维 [节点数, 分量数]。
+	// 本函数只读取形状，不读取数组内容。例如返回 [4, 3] 表示 4 行、每行 3 个值。
 	std::vector<hsize_t> dims;
 	hid_t space = H5Dget_space(dataset);
 	if (space < 0) return dims;
@@ -90,6 +118,8 @@ std::vector<int> readIntDataset(hid_t file, const std::string& path)
 
 std::vector<float> readFloatDataset(hid_t file, const std::string& path, std::vector<hsize_t>* shape = nullptr)
 {
+	// 返回值统一为一维 std::vector<float>，方便后续用“行下标 * 分量数 + 分量下标”访问。
+	// shape 是可选输出参数：调用者需要原二维/多维形状时传入地址，不需要时可省略。
 	std::vector<float> values;
 	if (!exists(file, path)) return values;
 	hid_t dataset = H5Dopen2(file, path.c_str(), H5P_DEFAULT);
@@ -106,6 +136,8 @@ std::vector<float> readFloatDataset(hid_t file, const std::string& path, std::ve
 
 QString readStringAttribute(hid_t group, const char* name)
 {
+	// HDF5 字符串有两种存法：变长字符串和固定长度字符串。
+	// 两个分支最终都转换为 Qt 的 QString，后续才能方便拼路径和字段名。
 	if (H5Aexists(group, name) <= 0) return QString();
 
 	hid_t attr = H5Aopen(group, name, H5P_DEFAULT);
@@ -135,6 +167,8 @@ QString readStringAttribute(hid_t group, const char* name)
 
 QStringList readStringListAttribute(hid_t group, const char* name)
 {
+	// 读取字符串数组，例如 ComponentLabels = ["S11", "S22", "S12"]。
+	// 这些标签决定每个数值分量的工程含义，不能只按数组位置盲猜。
 	QStringList result;
 	if (H5Aexists(group, name) <= 0) return result;
 
@@ -172,6 +206,8 @@ QStringList readStringListAttribute(hid_t group, const char* name)
 
 herr_t collectGroupNames(hid_t group, const char* name, const H5L_info_t*, void* opData)
 {
+	// H5Literate 要求传入 C 风格回调函数。每发现一个子项，就调用一次本函数。
+	// void* 是“没有具体类型的指针”；这里再转回 vector<string>*，把名称保存进去。
 	std::vector<std::string>* names = static_cast<std::vector<std::string>*>(opData);
 	names->push_back(name);
 	return 0;
@@ -179,6 +215,8 @@ herr_t collectGroupNames(hid_t group, const char* name, const H5L_info_t*, void*
 
 std::vector<std::string> groupNames(hid_t file, const std::string& path)
 {
+	// 枚举某个 group 下的全部直接子项，并按名称排序。
+	// 本项目用它枚举 Parts、Instances、Steps、Frames，更重要的是枚举每帧实际字段。
 	std::vector<std::string> names;
 	if (!exists(file, path)) return names;
 	hid_t group = H5Gopen2(file, path.c_str(), H5P_DEFAULT);
@@ -232,20 +270,25 @@ bool detectConnectivityUsesNodeIndex(const ElementClassInfo& cls, const SamMeshD
 	return allAsIndices;
 }
 
-SamMeshData readMesh(hid_t file)
+QString vtkSafeName(QString value);
+
+SamMeshData readMesh(hid_t file, const QString& partName, const QString& instanceName)
 {
 	// 读取网格的总入口：
 	// - Nodes/Labels 读节点编号；
 	// - Nodes/Coordinates 读节点坐标；
 	// - Elements/ElementClass:* 读不同类型的单元和连接关系。
 	SamMeshData mesh;
-	mesh.nodeLabels = readIntDataset(file, "/Parts/Part-1/Nodes/Labels");
-	mesh.coordinates = readFloatDataset(file, "/Parts/Part-1/Nodes/Coordinates");
+	mesh.partName = partName;
+	mesh.instanceName = instanceName;
+	const std::string partRoot = "/Parts/" + partName.toStdString();
+	mesh.nodeLabels = readIntDataset(file, partRoot + "/Nodes/Labels");
+	mesh.coordinates = readFloatDataset(file, partRoot + "/Nodes/Coordinates");
 	for (int i = 0; i < static_cast<int>(mesh.nodeLabels.size()); ++i) {
 		mesh.nodeLabelToPosition.insert(mesh.nodeLabels[i], i);
 	}
 
-	const std::string root = "/Parts/Part-1/Elements";
+	const std::string root = partRoot + "/Elements";
 	std::vector<std::string> classNames = groupNames(file, root);
 	std::sort(classNames.begin(), classNames.end(), [](const std::string& a, const std::string& b) {
 		return classIndexFromName(a) < classIndexFromName(b);
@@ -264,14 +307,21 @@ SamMeshData readMesh(hid_t file)
 		info.nodesPerElement = VTUElementHandler::GetArrayLengthByEnum(static_cast<VTUElementHandler::VTKType>(info.vtkType));
 		H5Gclose(group);
 
-		if (info.vtkType == VTUElementHandler::VTK_NONE || info.nodesPerElement <= 0) {
-			qDebug() << "[SamH5VtkExporter] Skip unsupported element type:" << info.type;
-			continue;
-		}
-
 		info.labels = readIntDataset(file, classPath + "/Labels");
 		info.connectivity = readIntDataset(file, classPath + "/Connectivities");
 		if (info.labels.empty() || info.connectivity.empty()) continue;
+		if (info.vtkType == VTUElementHandler::VTK_NONE || info.nodesPerElement <= 0) {
+			if (info.connectivity.size() % info.labels.size() != 0) {
+				qDebug() << "[SamH5VtkExporter] Skip malformed unknown element type:" << info.type;
+				continue;
+			}
+			info.nodesPerElement = static_cast<int>(info.connectivity.size() / info.labels.size());
+			info.vtkType = info.nodesPerElement == 1 ? VTUElementHandler::VTK_VERTEX
+				: info.nodesPerElement == 2 ? VTUElementHandler::VTK_LINE
+				: VTUElementHandler::VTK_CONVEX_POINT_SET;
+			qDebug() << "[SamH5VtkExporter] Preserve unknown element type as generic VTK cell:"
+				<< info.type << "nodes:" << info.nodesPerElement;
+		}
 		info.connectivityUsesNodeIndex = detectConnectivityUsesNodeIndex(info, mesh);
 		mesh.classes.push_back(info);
 	}
@@ -308,8 +358,10 @@ void fillMeshContainer(const SamMeshData& mesh, VTUDataContainer* container)
 		const int base = i * 3;
 		if (base + 2 >= static_cast<int>(mesh.coordinates.size())) break;
 		container->InsertNextPoint(mesh.nodeLabels[i], mesh.coordinates[base], mesh.coordinates[base + 1], mesh.coordinates[base + 2]);
+		container->InsertPointData("NodeLabel", i, QVector<float>{static_cast<float>(mesh.nodeLabels[i])});
 	}
 
+	QStringList cellElementTypes;
 	for (const ElementClassInfo& cls : mesh.classes) {
 		for (int e = 0; e < static_cast<int>(cls.labels.size()); ++e) {
 			int* nodes = static_cast<int*>(std::malloc(sizeof(int) * cls.nodesPerElement));
@@ -344,11 +396,22 @@ void fillMeshContainer(const SamMeshData& mesh, VTUDataContainer* container)
 			}
 
 			if (ok) {
-				container->InsertNextElement(static_cast<VTUElementHandler::VTKType>(cls.vtkType), nodes);
+				container->InsertNextElement(static_cast<VTUElementHandler::VTKType>(cls.vtkType), nodes, cls.nodesPerElement);
+				const int cellIndex = container->GetNumberOfCells() - 1;
+				container->InsertCellData("ElementLabel", cellIndex, QVector<float>{static_cast<float>(cls.labels[e])});
+				container->InsertCellData("ElementClass", cellIndex, QVector<float>{static_cast<float>(cls.h5ClassIndex)});
+				cellElementTypes.append(vtkSafeName(cls.type));
 			}
 			else {
 				std::free(nodes);
 			}
+		}
+	}
+	const QStringList uniqueTypes = QSet<QString>::fromList(cellElementTypes).values();
+	for (const QString& elementType : uniqueTypes) {
+		const QString fieldName = "ElementType__" + elementType;
+		for (int cellIndex = 0; cellIndex < cellElementTypes.size(); ++cellIndex) {
+			container->InsertCellData(fieldName, cellIndex, QVector<float>{cellElementTypes[cellIndex] == elementType ? 1.0f : 0.0f});
 		}
 	}
 }
@@ -429,109 +492,250 @@ float mises(const QVector<float>& v)
 		+ 3.0 * (s12 * s12 + s23 * s23 + s13 * s13)));
 }
 
-void writeNodalField(hid_t file, const std::string& framePath, const QString& name, VTUDataContainer* container)
+QString vtkSafeName(QString value)
 {
-	// 节点场写到 VTK 的 POINT_DATA。
-	// 当前主要处理 U 和 UR：每个节点 3 个分量。
-	std::vector<float> values = readFloatDataset(file, framePath + "/" + name.toStdString() + "/Part-1-1/Real");
-	if (values.empty()) return;
-	const int nodes = container->GetNumberOfPoints();
-	for (int i = 0; i < nodes; ++i) {
-		const int base = i * 3;
-		if (base + 2 >= static_cast<int>(values.size())) break;
-		container->InsertPointData(name, i, QVector<float>{values[base], values[base + 1], values[base + 2]});
+	// Legacy VTK 字段名不能安全包含空格、路径分隔符等字符。
+	// 统一替换成下划线，只改变输出名称，不改变数值。
+	for (int i = 0; i < value.size(); ++i) {
+		const QChar ch = value.at(i);
+		if (ch.isSpace() || ch == '/' || ch == '\\' || ch == ':' || ch == ';') value[i] = '_';
+	}
+	return value;
+}
+
+QString componentFieldName(const QString& outputName, const QString& fieldName, const QStringList& labels, int component)
+{
+	// 为一个多分量字段生成单独分量名。
+	// 例：U 的三个分量生成 U1/U2/U3；S 统一生成 S11/S22/S33/S12/S23/S13。
+	// 如果是精确记录 S__LocationIndex_1，则同样把后缀带到分量名上，避免不同位置互相覆盖。
+	QString label;
+	if (fieldName == "S" || fieldName == "E") {
+		const QStringList tensorSuffixes{"11", "22", "33", "12", "23", "13"};
+		if (component < tensorSuffixes.size()) label = fieldName + tensorSuffixes[component];
+	}
+	else if (component < labels.size()) {
+		label = vtkSafeName(labels[component]);
+	}
+	if (label.isEmpty()) label = fieldName + QString::number(component + 1);
+	QString suffix;
+	if (outputName.startsWith(fieldName)) suffix = outputName.mid(fieldName.size());
+	else suffix = "__" + outputName;
+	return label + suffix;
+}
+
+int componentCount(const std::vector<float>& values, const std::vector<hsize_t>& shape, int records, const QStringList& labels)
+{
+	// 按可靠程度推断每条记录有几个分量：
+	// 1. 优先使用 dataset 最后一维；2. 再用 ComponentLabels 数量；3. 最后用总数/记录数。
+	// 例如 shape=[4,3]，表示 4 条记录、每条 3 个分量。
+	if (shape.size() >= 2 && shape.back() > 0) return static_cast<int>(shape.back());
+	if (!labels.isEmpty()) return labels.size();
+	if (records > 0 && values.size() % records == 0) return static_cast<int>(values.size()) / records;
+	return 1;
+}
+
+void insertPointTuple(VTUDataContainer* container, const QString& outputName, const QString& fieldName,
+	const QStringList& labels, int pointIndex, const QVector<float>& tuple)
+{
+	// tuple 表示“一个节点的一整条结果”，例如 U=[U1,U2,U3]。
+	// 先保存整体 U，便于按向量/模长显示；再保存 U1/U2/U3，便于按单分量着色。
+	container->InsertPointData(outputName, pointIndex, tuple);
+	if (tuple.size() <= 1) return;
+	for (int component = 0; component < tuple.size(); ++component) {
+		container->InsertPointData(componentFieldName(outputName, fieldName, labels, component), pointIndex,
+			QVector<float>{tuple[component]});
 	}
 }
 
-void writeTensorField(hid_t file, const std::string& framePath, const QString& fieldName, const SamMeshData& mesh, VTUDataContainer* container)
+void insertCellTuple(VTUDataContainer* container, const QString& outputName, const QString& fieldName,
+	const QStringList& labels, int cellIndex, const QVector<float>& tuple)
 {
-	// 单元张量场写到 VTK 的 CELL_DATA。
-	// S 表示应力，E 表示应变。一个单元可能有多个积分点或壳截面点，
-	// Legacy VTK 的 CELL_DATA 是“一单元一行”，所以这里把同一单元的多个值平均成一个单元值。
-	const std::string fieldRoot = framePath + "/" + fieldName.toStdString() + "/Part-1-1";
-	if (!exists(file, fieldRoot)) return;
-
-	QStringList componentLabels;
-	const std::string fieldGroupPath = framePath + "/" + fieldName.toStdString();
-	hid_t fieldGroup = H5Gopen2(file, fieldGroupPath.c_str(), H5P_DEFAULT);
-	if (fieldGroup >= 0) {
-		componentLabels = readStringListAttribute(fieldGroup, "ComponentLabels");
-		H5Gclose(fieldGroup);
+	// 与节点版本相同，只是目标换成 CELL_DATA。例如同时保存 S 和 S11/S22/...。
+	container->InsertCellData(outputName, cellIndex, tuple);
+	if (tuple.size() <= 1) return;
+	for (int component = 0; component < tuple.size(); ++component) {
+		container->InsertCellData(componentFieldName(outputName, fieldName, labels, component), cellIndex,
+			QVector<float>{tuple[component]});
 	}
+}
 
+void writeNodalDataset(hid_t file, const std::string& datasetPath, const QString& outputName,
+	const QString& fieldName, const QStringList& labels, VTUDataContainer* container)
+{
+	// 节点字段常见布局为 [节点数, 分量数]。
+	// HDF5 读出后是一维数组，因此第 node 行第 component 列的位置是：
+	// node * components + component。这和 C 语言二维数组按行连续存储相同。
+	std::vector<hsize_t> shape;
+	std::vector<float> values = readFloatDataset(file, datasetPath, &shape);
+	if (values.empty()) return;
+	const int nodes = container->GetNumberOfPoints();
+	const int components = componentCount(values, shape, nodes, labels);
+	if (components <= 0 || static_cast<int>(values.size()) < nodes * components) return;
+	for (int node = 0; node < nodes; ++node) {
+		QVector<float> tuple;
+		tuple.reserve(components);
+		for (int component = 0; component < components; ++component) {
+			tuple.append(values[node * components + component]);
+		}
+		insertPointTuple(container, outputName, fieldName, labels, node, tuple);
+	}
+}
+
+void writeGlobalDataset(hid_t file, const std::string& datasetPath, const QString& outputName,
+	const QStringList& labels, VTUDataContainer* container)
+{
+	// 全局结果不属于某个节点或单元，不能硬塞进 POINT_DATA/CELL_DATA。
+	// 保存到 fieldData，最终由 Legacy writer 写成标准 FIELD FieldData。
+	std::vector<hsize_t> shape;
+	std::vector<float> values = readFloatDataset(file, datasetPath, &shape);
+	if (values.empty()) return;
+	int components = !labels.isEmpty() ? labels.size() : 1;
+	if (shape.size() >= 2 && shape.back() > 0) components = static_cast<int>(shape.back());
+	if (components <= 0 || values.size() % components != 0) components = 1;
+	const int tuples = static_cast<int>(values.size()) / components;
+	QVector<float> data;
+	data.reserve(static_cast<int>(values.size()));
+	for (float value : values) data.append(value);
+	container->InsertFieldData(outputName, components, tuples, data);
+}
+
+QVector<float> normalizedTuple(const float* data, int components, const QStringList& labels, const QString& fieldName)
+{
+	// S/E 是张量，需要按 ComponentLabels 放到统一六分量顺序。
+	// 其他字段不改变分量顺序，尽量保持源文件语义。
+	if (fieldName == "S" || fieldName == "E") {
+		return normalizeTensor6ByLabels(data, components, labels, fieldName);
+	}
+	QVector<float> tuple;
+	tuple.reserve(components);
+	for (int component = 0; component < components; ++component) tuple.append(data[component]);
+	return tuple;
+}
+
+void writeElementField(hid_t file, const std::string& framePath, const QString& fieldName,
+	const QString& instanceName, const QStringList& labels, const SamMeshData& mesh, VTUDataContainer* container)
+{
+	// 单元字段比节点字段复杂：一个单元可能有多个积分点、截面点或单元节点记录。
+	// 本函数采取“双份保留”策略：
+	// 1. 每个位置/记录单独保存为精确字段，防止信息丢失；
+	// 2. 同一单元的实部记录再求平均，继续生成旧用户熟悉的 S/E 兼容字段。
+	const std::string fieldRoot = framePath + "/" + fieldName.toStdString() + "/" + instanceName.toStdString();
+	if (!exists(file, fieldRoot)) return;
+	// container 中所有 ElementClass 的单元放在一个连续数组里。
+	// globalCellOffset 记录当前单元类在全局 CELL_DATA 中从哪里开始。
 	int globalCellOffset = 0;
-	for (int classIndex = 0; classIndex < static_cast<int>(mesh.classes.size()); ++classIndex) {
-		const ElementClassInfo& cls = mesh.classes[classIndex];
-
-		// 结果数据在 H5 中仍然使用原始 ElementClass 编号。
-		// mesh.classes 会跳过 SPRINGA 等 VTK 不支持的单元，所以这里不能使用过滤后的 classIndex。
+	for (const ElementClassInfo& cls : mesh.classes) {
 		const std::string classRoot = fieldRoot + "/ElementClass:" + std::to_string(cls.h5ClassIndex);
 		const int elementCount = static_cast<int>(cls.labels.size());
-		std::vector<QVector<float>> sums(elementCount, QVector<float>(6, 0.0f));
+		// sums/counts 只用于计算兼容平均值；精确记录会在内层循环立即写入，不会被平均替代。
+		std::vector<QVector<float>> sums(elementCount);
 		std::vector<int> counts(elementCount, 0);
 
+		// locationName 可能代表积分点、截面位置等。Real/Imag 分别是复数的实部和虚部。
 		for (const std::string& locationName : groupNames(file, classRoot)) {
-			std::vector<hsize_t> shape;
-			std::vector<float> values = readFloatDataset(file, classRoot + "/" + locationName + "/Real", &shape);
-			if (values.empty() || elementCount <= 0) continue;
-
-			// 结果数组常见的两种形状是：
-			// (单元数, 分量数)，以及 (单元数 * 节点/积分点数, 分量数)。
-			// 例如一个四节点壳单元的 S 可能是 (4, 4)，这表示 4 个位置、
-			// 每个位置 4 个分量，而不是一个拥有 16 个分量的张量。
-			// 统一把最后一维作为分量数，前面的数据记录按单元平均。
-			const int components = shape.size() >= 2
-				? static_cast<int>(shape.back())
-				: static_cast<int>(values.size()) / elementCount;
-			if (components <= 0) continue;
-			const int recordCount = static_cast<int>(values.size()) / components;
-			if (recordCount < elementCount || recordCount % elementCount != 0) continue;
-			const int recordsPerElement = recordCount / elementCount;
-			for (int e = 0; e < elementCount; ++e) {
-				for (int record = 0; record < recordsPerElement; ++record) {
-					const int offset = (e * recordsPerElement + record) * components;
-					QVector<float> tensor = normalizeTensor6ByLabels(values.data() + offset, components, componentLabels, fieldName);
-					for (int c = 0; c < 6; ++c) sums[e][c] += tensor[c];
-					counts[e] += 1;
+			for (const QString& part : QStringList{"Real", "Imag"}) {
+				std::vector<hsize_t> shape;
+				const std::string datasetPath = classRoot + "/" + locationName + "/" + part.toStdString();
+				std::vector<float> values = readFloatDataset(file, datasetPath, &shape);
+				if (values.empty() || elementCount <= 0) continue;
+				const int components = componentCount(values, shape, elementCount, labels);
+				if (components <= 0 || values.size() % components != 0) continue;
+				const int recordCount = static_cast<int>(values.size()) / components;
+				if (recordCount < elementCount || recordCount % elementCount != 0) continue;
+				// 总记录数能够整除单元数时，商就是每个单元拥有的记录数。
+				const int recordsPerElement = recordCount / elementCount;
+				for (int element = 0; element < elementCount; ++element) {
+					for (int record = 0; record < recordsPerElement; ++record) {
+						const int offset = (element * recordsPerElement + record) * components;
+						QVector<float> tuple = normalizedTuple(values.data() + offset, components, labels, fieldName);
+						// 名称编码数据来源，例：S__LocationIndex_1__Record_2__Imag。
+						// 这样多个位置、多个记录和虚部可以同时存在，不会写入同名数组互相覆盖。
+						QString exactName = fieldName + "__" + vtkSafeName(QString::fromStdString(locationName));
+						if (recordsPerElement > 1) exactName += "__Record_" + QString::number(record + 1);
+						if (part == "Imag") exactName += "__Imag";
+						const int cellIndex = globalCellOffset + element;
+						container->InsertCellData(exactName, cellIndex, tuple);
+						if (fieldName == "S" && part == "Real") {
+							const QString suffix = exactName.mid(fieldName.size());
+							container->InsertCellData("S_Mises" + suffix, cellIndex, QVector<float>{mises(tuple)});
+							container->InsertCellData("S_pressure" + suffix, cellIndex,
+								QVector<float>{-(tuple[0] + tuple[1] + tuple[2]) / 3.0f});
+						}
+						if (part == "Real") {
+							if (sums[element].isEmpty()) sums[element] = QVector<float>(tuple.size(), 0.0f);
+							if (sums[element].size() == tuple.size()) {
+								for (int component = 0; component < tuple.size(); ++component) sums[element][component] += tuple[component];
+								counts[element] += 1;
+							}
+						}
+					}
 				}
 			}
 		}
 
-		for (int e = 0; e < elementCount; ++e) {
-			if (counts[e] <= 0) continue;
-			QVector<float> avg(6, 0.0f);
-			for (int c = 0; c < 6; ++c) avg[c] = sums[e][c] / counts[e];
-			const int cellIndex = globalCellOffset + e;
-			container->InsertCellData(fieldName, cellIndex, avg);
-
-			QStringList componentNames;
-			componentNames << fieldName + "11" << fieldName + "22" << fieldName + "33"
-				<< fieldName + "12" << fieldName + "23" << fieldName + "13";
-			for (int c = 0; c < componentNames.size(); ++c) {
-				container->InsertCellData(componentNames[c], cellIndex, QVector<float>{avg[c]});
-			}
+		// 精确数据全部写完后，再为每个单元生成一个平均实部字段。
+		// 这一步保留旧版 S/E 使用方式；需要精确结果时选择带双下划线的字段。
+		for (int element = 0; element < elementCount; ++element) {
+			if (counts[element] <= 0 || sums[element].isEmpty()) continue;
+			QVector<float> average = sums[element];
+			for (int component = 0; component < average.size(); ++component) average[component] /= counts[element];
+			const int cellIndex = globalCellOffset + element;
+			insertCellTuple(container, fieldName, fieldName, labels, cellIndex, average);
 			if (fieldName == "S") {
-				container->InsertCellData("S_Mises", cellIndex, QVector<float>{mises(avg)});
-				container->InsertCellData("S_pressure", cellIndex, QVector<float>{-(avg[0] + avg[1] + avg[2]) / 3.0f});
+				container->InsertCellData("S_Mises", cellIndex, QVector<float>{mises(average)});
+				container->InsertCellData("S_pressure", cellIndex,
+					QVector<float>{-(average[0] + average[1] + average[2]) / 3.0f});
 			}
 		}
-
 		globalCellOffset += elementCount;
 	}
 }
 
+void writeField(hid_t file, const std::string& framePath, const QString& fieldName,
+	const SamMeshData& mesh, VTUDataContainer* container)
+{
+	// 所有字段统一从这里分发。它不写死 U、UR、RF、RM 等名字，而是查看 H5 结构和 Position。
+	// 可以类比 Python 路由函数：识别数据属于哪里，再调用对应处理函数。
+	const std::string fieldPath = framePath + "/" + fieldName.toStdString();
+	hid_t fieldGroup = H5Gopen2(file, fieldPath.c_str(), H5P_DEFAULT);
+	if (fieldGroup < 0) return;
+	// ComponentLabels 说明分量含义；Position 说明字段属于节点、单元还是全局区域。
+	const QStringList labels = readStringListAttribute(fieldGroup, "ComponentLabels");
+	const int position = readIntAttribute(fieldGroup, "Position", 0);
+	H5Gclose(fieldGroup);
+	const std::string instanceRoot = fieldPath + "/" + mesh.instanceName.toStdString();
+	if (!exists(file, instanceRoot)) return;
+	// 节点/全局字段的 Real/Imag dataset 直接位于 Instance 下；
+	// 单元字段下面还会继续出现 ElementClass 和 Location 层级，因此走最后的分支。
+	if (exists(file, instanceRoot + "/Real") || exists(file, instanceRoot + "/Imag")) {
+		if (position == 1 || position == 2 || position == 13) {
+			writeNodalDataset(file, instanceRoot + "/Real", fieldName, fieldName, labels, container);
+			writeNodalDataset(file, instanceRoot + "/Imag", fieldName + "__Imag", fieldName, labels, container);
+		}
+		else {
+			writeGlobalDataset(file, instanceRoot + "/Real", fieldName, labels, container);
+			writeGlobalDataset(file, instanceRoot + "/Imag", fieldName + "__Imag", labels, container);
+		}
+		return;
+	}
+	writeElementField(file, framePath, fieldName, mesh.instanceName, labels, mesh, container);
+}
+
 } // namespace
 
-int ExportSamH5ToVtkFrames(const QString& h5Path, VTUContainerWriter* writer)
+int ExportSamH5ToVtkContainers(const QString& h5Path, QList<VTUDataContainer*>* framesOutput)
 {
 	// 这是 SAM H5 -> VTK 多帧导出的总入口。
 	// VTUFileManager 会先尝试调用这里；成功后 writer->VTKDataFramesList 里会得到多帧容器，
 	// 后续 WriteFile 会把每一帧分别写成一个 .vtk 文件。
-	if (!writer) {
+	// 返回 0 表示直接 H5 路线成功；返回 -1 表示“不适用或读取失败”，上层会回退 ODB SDK。
+	// 因此这里的失败不是整个导出必然失败，而是告诉调度器继续尝试兼容路线。
+	if (!framesOutput) {
 		qDebug() << "[SamH5VtkExporter] No output container writer was supplied.";
 		return -1;
 	}
 
+	// QFileInfo 只负责检查路径和扩展名；真正读取文件使用下面的 H5Fopen。
 	const QFileInfo h5File(h5Path);
 	if (!h5File.exists() || !h5File.isFile()) {
 		qDebug() << "[SamH5VtkExporter] The ODB reference is not an existing file:" << h5Path;
@@ -544,13 +748,25 @@ int ExportSamH5ToVtkFrames(const QString& h5Path, VTUContainerWriter* writer)
 
 	const QString absolutePath = h5File.absoluteFilePath();
 	qDebug() << "[SamH5VtkExporter] Reading SAM H5 directly:" << absolutePath;
+	// H5F_ACC_RDONLY 表示只读打开，导出过程不会修改用户的源 H5。
 	hid_t file = H5Fopen(absolutePath.toLocal8Bit().constData(), H5F_ACC_RDONLY, H5P_DEFAULT);
 	if (file < 0) {
 		qDebug() << "[SamH5VtkExporter] H5Fopen failed:" << absolutePath;
 		return -1;
 	}
 
-	SamMeshData mesh = readMesh(file);
+	const std::vector<std::string> parts = groupNames(file, "/Parts");
+	const std::vector<std::string> instances = groupNames(file, "/Assembly/Instances");
+	// 当前直接路线只在单 Part、单 Instance 时建立了一一对应关系。
+	// 多 Part/Instance 若强行拼接，节点下标、Instance 结果和单元偏移可能对应错误。
+	// 所以检测到复杂结构时主动返回 -1，让成熟的 ODB SDK 路线接管，而不是输出错误 VTK。
+	if (parts.size() != 1 || instances.size() != 1) {
+		qDebug() << "[SamH5VtkExporter] Direct H5 export requires one part and one instance; using ODB fallback."
+			<< "parts:" << parts.size() << "instances:" << instances.size();
+		H5Fclose(file);
+		return -1;
+	}
+	SamMeshData mesh = readMesh(file, QString::fromStdString(parts.front()), QString::fromStdString(instances.front()));
 	if (mesh.nodeLabels.empty() || mesh.classes.empty()) {
 		qDebug() << "[SamH5VtkExporter] Required mesh groups are absent or contain no supported cells."
 			<< "nodes:" << mesh.nodeLabels.size() << "element classes:" << mesh.classes.size();
@@ -558,31 +774,55 @@ int ExportSamH5ToVtkFrames(const QString& h5Path, VTUContainerWriter* writer)
 		return -1;
 	}
 
-	std::vector<std::string> frames = groupNames(file, "/Steps/Step-1/Frames");
-	std::sort(frames.begin(), frames.end(), [](const std::string& a, const std::string& b) {
-		const std::string prefix = "Frame:";
-		int ia = a.rfind(prefix, 0) == 0 ? std::atoi(a.substr(prefix.size()).c_str()) : 0;
-		int ib = b.rfind(prefix, 0) == 0 ? std::atoi(b.substr(prefix.size()).c_str()) : 0;
-		return ia < ib;
-	});
-	if (frames.empty()) frames.push_back("Frame:0");
-
-	for (const std::string& frameName : frames) {
+	// 不假设 Step 名为 Step-1，也不只处理第一步；实际有几个 Step 就遍历几个。
+	std::vector<std::string> steps = groupNames(file, "/Steps");
+	for (const std::string& stepName : steps) {
+		const std::string framesRoot = "/Steps/" + stepName + "/Frames";
+		std::vector<std::string> frames = groupNames(file, framesRoot);
+		// 字符串排序会把 Frame:10 放在 Frame:2 前面，所以取冒号后的数字再比较。
+		// [](...) { ... } 是 C++ lambda，可理解为临时写在这里的“小比较函数”。
+		std::sort(frames.begin(), frames.end(), [](const std::string& a, const std::string& b) {
+			const std::string prefix = "Frame:";
+			int ia = a.rfind(prefix, 0) == 0 ? std::atoi(a.substr(prefix.size()).c_str()) : 0;
+			int ib = b.rfind(prefix, 0) == 0 ? std::atoi(b.substr(prefix.size()).c_str()) : 0;
+			return ia < ib;
+		});
+		for (const std::string& frameName : frames) {
+			// 每个 Frame 创建独立容器。同一份网格会复制到每帧，再附加该帧自己的结果字段。
+			VTUDataContainer* container = new VTUDataContainer;
+			fillMeshContainer(mesh, container);
+			const std::string framePath = framesRoot + "/" + frameName;
+			// 核心升级点：枚举源 Frame 下实际存在的全部字段，而不是写死 U/UR/S/E 白名单。
+			// 新字段只要遵循相同 H5 层级，就会自动进入 writeField() 分类处理。
+			for (const std::string& fieldName : groupNames(file, framePath)) {
+				writeField(file, framePath, QString::fromStdString(fieldName), mesh, container);
+			}
+			framesOutput->append(container);
+			qDebug() << "[SamH5VtkExporter] Step/frame" << QString::fromStdString(stepName)
+				<< QString::fromStdString(frameName)
+				<< "cells:" << container->GetNumberOfCells()
+				<< "point fields:" << container->pointData.keys()
+				<< "cell fields:" << container->cellData.keys();
+		}
+	}
+	if (framesOutput->isEmpty()) {
+		// 某些 H5 只有网格、没有 Step/Frame 结果。仍输出一帧纯几何，避免合法网格被判失败。
 		VTUDataContainer* container = new VTUDataContainer;
 		fillMeshContainer(mesh, container);
-		const std::string framePath = "/Steps/Step-1/Frames/" + frameName;
-		writeNodalField(file, framePath, "U", container);
-		writeNodalField(file, framePath, "UR", container);
-		writeTensorField(file, framePath, "S", mesh, container);
-		writeTensorField(file, framePath, "E", mesh, container);
-		writer->VTKDataFramesList.append(container);
-		qDebug() << "[SamH5VtkExporter] Frame" << QString::fromStdString(frameName)
-			<< "cells:" << container->GetNumberOfCells()
-			<< "point fields:" << container->pointData.keys()
-			<< "cell fields:" << container->cellData.keys();
+		framesOutput->append(container);
 	}
 
+	// 所有数据已经复制进 C++ 容器，关闭 H5 文件不会影响后续 VTK 写出。
 	H5Fclose(file);
-	qDebug() << "[SamH5VtkExporter] Exported frames from SAM H5:" << writer->VTKDataFramesList.size();
+	qDebug() << "[SamH5VtkExporter] Exported frames from SAM H5:" << framesOutput->size();
 	return 0;
+}
+
+int ExportSamH5ToVtkFrames(const QString& h5Path, VTUContainerWriter* writer)
+{
+	// 这是给正式 SAM 导出链使用的薄封装。
+	// 真正转换逻辑集中在 ExportSamH5ToVtkContainers()，独立 Smoke Test 也调用同一核心，
+	// 因此测试通过的不是另一套模拟代码，而是正式插件使用的转换代码。
+	if (!writer) return -1;
+	return ExportSamH5ToVtkContainers(h5Path, &writer->VTKDataFramesList);
 }

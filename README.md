@@ -2,8 +2,10 @@
 
 # SAM VTKToolset
 
-SAM 的 VTK 导入与导出扩展，支持梁、壳、体网格及常用后处理结果写出。
+### ——课题四 选题二 VTKToolset 接口升级——
 
+SAM 的 VTK 导出扩展，支持梁、壳、体网格及常用后处理结果写出。
+  
 ![C++](https://img.shields.io/badge/C%2B%2B-14-00599C?logo=cplusplus)
 ![CMake](https://img.shields.io/badge/CMake-3.28+-064F8C?logo=cmake)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)
@@ -17,8 +19,12 @@ SAM 的 VTK 导入与导出扩展，支持梁、壳、体网格及常用后处�
 ## 快速开始：直接部署，无需源码编译
 
 > **可直接部署文件：** `deploy/Release/VTUFileIO.pyd` 和 `deploy/Release/FilePlugin/SAM.Pre.VTUFileIOToolset.dll`
-> **12 个已验证 SAM H5 测试案例：** `test_cases/SAM_H5/`
+
+> **15 个已验证 SAM H5 测试案例：** `test_cases/SAM_H5/`
+
 > **本项目配套的 VTK.js 可视化网站：** [https://fuxuannet.github.io/vtk_geometry_viewer/](https://fuxuannet.github.io/vtk_geometry_viewer/)
+
+> **测试报告：** [https://my.feishu.cn/wiki/IWMxwN8WuiNDuGkxF3ic6W8Inhb](https://my.feishu.cn/wiki/IWMxwN8WuiNDuGkxF3ic6W8Inhb)
 
 本项目可以直接部署到兼容版本的 SAM 中使用，不需要编译 C++ 源码。运行包不包含单独的 `.exe`，因为它由 SAM 启动时加载的两个模块组成。
 
@@ -26,7 +32,14 @@ SAM 的 VTK 导入与导出扩展，支持梁、壳、体网格及常用后处�
 
 1. 完全退出 SAM。
 2. 打开项目中的 `deploy` 目录。
-3. 将其中的 `Release` 文件夹复制到 SAM 安装根目录，例如 `E:/SAM`。
+3. 将其中的 `Release` 文件夹复制到 SAM 安装根目录，例如 `E:\SAM`。
+	
+    >（或手动追加 `Release` 文件夹下的两个文件。对应路径分别是：
+    
+    >`E:\SAM\Release\VTUFileIO.pyd` 
+    
+    >`E:\SAM\Release\FilePlugin\SAM.Pre.VTUFileIOToolset.dll`）
+    
 4. 允许 Windows 合并 `Release` 和 `Release/FilePlugin` 文件夹；更新版本时允许替换同名旧文件。
 5. 启动 SAM。
 6. 在菜单中确认出现 `File -> Import -> VTK...` 与 `File -> Export -> VTK...`。
@@ -50,7 +63,7 @@ E:/SAM/
 5. 将导出的 `.vtk` 文件拖入网页查看器：[https://fuxuannet.github.io/vtk_geometry_viewer/](https://fuxuannet.github.io/vtk_geometry_viewer/)。
 6. 在网页中检查网格，并从结果场列表选择 `U`、`UR`、`S`、`E`、`S11`、`S_Mises` 或 `S_pressure`。
 
-这 12 个 H5 均已完成 SAM 到 VTK 的实际对比验证。验证结果包含 44 个 VTK 文件，44 个通过，0 个失败。详细覆盖范围见 `test_cases/README.md`。
+这 15 个 H5 均已完成 SAM 到 VTK 的实际对比验证。验证结果包含 57 个 VTK 文件，57 个通过，0 个失败。详细覆盖范围见 `test_cases/README.md`。
 
 ## 项目简介
 
@@ -200,6 +213,6 @@ SAM H5 到 VTK 的实际导出测试还需要本机安装 SAM，并在 SAM 图�
 
 确认菜单 DLL 位于 `<SAM>/Release/FilePlugin`，后端模块位于 `<SAM>/Release`，然后完全退出并重新启动 SAM。
 
-### 队友需要完整 SDK 吗
+### 需要完整 SDK 吗
 
 参与源码编译需要 SAMSDK。只使用已编译插件时，可以部署两个 Release 文件，但仍需版本匹配的 SAM 软件环境。

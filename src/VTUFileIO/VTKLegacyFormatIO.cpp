@@ -57,6 +57,9 @@ int VTKLegacyFormatWriter::Write() {
 	currentState = WriteCellTypes();
 	*stream << flush;
 
+	currentState = WriteGlobalFieldData();
+	*stream << flush;
+
 	currentState = WritePointData();
 	*stream << flush;
 
@@ -64,6 +67,26 @@ int VTKLegacyFormatWriter::Write() {
 	*stream << flush;
 
 	return 0;
+}
+
+FormatWriter::State VTKLegacyFormatWriter::WriteGlobalFieldData()
+{
+	if (currentState != CellTypesWritten || data->fieldData.isEmpty()) return currentState;
+	*stream << "\nFIELD FieldData " << data->fieldData.size() << "\n";
+	for (auto it = data->fieldData.constBegin(); it != data->fieldData.constEnd(); ++it) {
+		const QString& name = it.key();
+		const QVector<float>& values = it.value();
+		const int components = data->fieldDataComponents.value(name, 0);
+		const int tuples = data->fieldDataTuples.value(name, 0);
+		if (components <= 0 || tuples <= 0 || values.size() < components * tuples) continue;
+		*stream << name << " " << components << " " << tuples << " float\n";
+		for (int valueIndex = 0; valueIndex < components * tuples; ++valueIndex) {
+			*stream << values[valueIndex] << " ";
+			if ((valueIndex + 1) % qMax(1, components * 3) == 0) *stream << "\n";
+		}
+		if ((components * tuples) % qMax(1, components * 3) != 0) *stream << "\n";
+	}
+	return CellTypesWritten;
 }
 
 FormatWriter::State VTKLegacyFormatWriter::WritePointsHeader() {
@@ -125,7 +148,7 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCells() {
 	int count = 0;
 
 	for (int i = 0; i < data->elems.size(); ++i) {
-		int numNodes = VTUElementHandler::GetArrayLengthByEnum(data->elems[i].type);
+		int numNodes = data->elems[i].nodeCount > 0 ? data->elems[i].nodeCount : VTUElementHandler::GetArrayLengthByEnum(data->elems[i].type);
 		*stream << numNodes;
 
 		for (int j = 0; j < numNodes; ++j) {
@@ -239,6 +262,15 @@ FormatWriter::State VTKLegacyFormatWriter::WritePointData() {
 			}
 			if (numPoints % pointsPerLine != 0) *stream << "\n";
 		}
+		else {
+			*stream << "FIELD FieldData 1\n";
+			*stream << fieldName << " " << numComp << " " << numPoints << " float\n";
+			for (int valueIndex = 0; valueIndex < numPoints * numComp; ++valueIndex) {
+				*stream << values[valueIndex] << " ";
+				if ((valueIndex + 1) % qMax(1, numComp * 3) == 0) *stream << "\n";
+			}
+			if ((numPoints * numComp) % qMax(1, numComp * 3) != 0) *stream << "\n";
+		}
 	}
 	currentState = PointDataWritten;
 
@@ -309,6 +341,15 @@ FormatWriter::State VTKLegacyFormatWriter::WriteCellData() {
 					if ((i + 1) % cellsPerLine == 0) *stream << "\n";
 				}
 				if (numCells % cellsPerLine != 0) *stream << "\n";
+			}
+			else {
+				*stream << "FIELD FieldData 1\n";
+				*stream << fieldName << " " << numComp << " " << numCells << " float\n";
+				for (int valueIndex = 0; valueIndex < numCells * numComp; ++valueIndex) {
+					*stream << values[valueIndex] << " ";
+					if ((valueIndex + 1) % qMax(1, numComp * 3) == 0) *stream << "\n";
+				}
+				if ((numCells * numComp) % qMax(1, numComp * 3) != 0) *stream << "\n";
 			}
 		}
 	}
@@ -598,6 +639,7 @@ int VTKLegacyFormatReader::ReadCells30(int numCells) {
 		}
 		// Add to data container
 		data->elems[i].dataSet = conn;
+		data->elems[i].nodeCount = count;
 		++cellsRead;
 	}
 	return 0;
@@ -628,6 +670,7 @@ int VTKLegacyFormatReader::ReadCells51(int numOffsets) {
 				}
 				// Add to data container
 				data->elems[i].dataSet = conn;
+				data->elems[i].nodeCount = distance;
 				++cellsRead;
 			}
 

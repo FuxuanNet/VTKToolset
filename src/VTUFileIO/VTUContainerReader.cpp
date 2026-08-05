@@ -129,7 +129,7 @@ int VTUContainerReader::ConstructElemClasses(bmeElementClass*** classes, int* nu
 			nowType = type;
 		}
 	
-		for (int k = 0; k < VTUElementHandler::GetArrayLengthByEnum(VTKData->elems[i].type); ++k)
+		for (int k = 0; k < (VTKData->elems[i].nodeCount > 0 ? VTKData->elems[i].nodeCount : VTUElementHandler::GetArrayLengthByEnum(VTKData->elems[i].type)); ++k)
 		{
 			connVec.push_back(VTKData->elems[i].dataSet[k] + 1);
 		}
